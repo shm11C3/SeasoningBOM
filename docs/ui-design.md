@@ -2,7 +2,7 @@
 
 SeasoningBOM の UI は GitHub Repository 画面を料理レシピに置き換えることを中心に設計します。
 
-UI ライブラリは `@primer/react`、アイコンは `@primer/octicons-react` を採用します。
+UI ライブラリは `@primer/react` を採用します。アイコンは最終方針が決まるまで、内部の仮 SVG アイコンを使います。
 
 ## UI Concept
 
@@ -266,7 +266,7 @@ Use Primer for:
 - dialogs
 - tabs
 - forms
-- octicons
+- temporary internal SVG icons
 
 Avoid:
 
@@ -282,4 +282,3 @@ MVP baseline:
 - Forms have labels and validation messages.
 - Keyboard navigation works for tabs and dialogs.
 - Severity is shown by both text and color.
-

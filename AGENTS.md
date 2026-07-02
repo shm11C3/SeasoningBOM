@@ -20,9 +20,9 @@ The app is intentionally funny, but food safety behavior must be conservative.
 
 ## Current Phase
 
-The repository is currently in design/documentation phase.
+The repository has an MVP web implementation scaffold and core app flow.
 
-Do not assume the implementation scaffold exists until `package.json` and `src/` are present.
+`package.json` and `src/` are present. Keep implementation work aligned with the docs and add an ADR for new architectural decisions.
 
 ## Canonical Docs
 
@@ -50,7 +50,8 @@ If implementation and docs disagree, update the docs or explain why the implemen
 - License: MIT
 - MVP target: Web first
 - Stack: React + Vite + TypeScript
-- UI: `@primer/react` + `@primer/octicons-react`
+- UI: `@primer/react`
+- Icons: temporary internal SVG placeholders in `src/ui/components/TemporaryIcons.tsx`
 - Web persistence: IndexedDB
 - IndexedDB wrapper: Dexie.js
 - React DB binding: `dexie-react-hooks` / `useLiveQuery`
@@ -102,7 +103,7 @@ Rules:
 
 ## Expected Source Layout
 
-When implementation starts, use this shape unless an ADR changes it:
+Use this source shape unless an ADR changes it:
 
 ```text
 src/
