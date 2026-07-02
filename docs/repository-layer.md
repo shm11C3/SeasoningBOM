@@ -165,8 +165,9 @@ Dexie 実装では、複数 store を更新する操作は transaction にまと
 Examples:
 
 - レシピ削除時に components も削除する。
-- recipe editor 保存時に recipe と components を同時更新する。
 - backup import 時に複数 store を一括更新する。
+
+MVP の recipe editor は `RecipeRepository.save` と `RecipeComponentRepository.saveMany` を順に呼びます。レシピ本体と components を完全に atomic に保存する aggregate repository は、保存失敗時の復旧 UX を含めて P1 以降で検討します。
 
 ## Import Conflict Policy
 
@@ -203,4 +204,3 @@ Do not:
 - domain function から Repository を呼ばない。
 - lifecycle status を DB に保存しない。
 - SeasoningBOM snapshot を DB に保存しない。
-

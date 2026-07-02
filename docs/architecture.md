@@ -12,7 +12,7 @@ MVP では Web のみを実装し、データ永続化には IndexedDB を使用
 | UI | React |
 | Build | Vite |
 | UI library | `@primer/react` |
-| Icons | `@primer/octicons-react` |
+| Icons | Temporary internal SVG placeholders |
 | Web storage | IndexedDB |
 | IndexedDB wrapper | Dexie.js |
 | React data binding | `dexie-react-hooks` / `useLiveQuery` |
@@ -253,4 +253,3 @@ MVP 後半で追加:
 - inventory 登録 → `nom audit`
 - SeasoningBOM download
 - backup export/import
-

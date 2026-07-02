@@ -257,6 +257,7 @@ type GenerateSeasoningBOMInput = {
   inventoryItems: InventoryItem[];
   audit: AuditResult;
   generatedAt: Date;
+  settings: AppSettings;
 };
 ```
 
@@ -289,4 +290,3 @@ Do not:
 - 関数内で DB を読む。
 - 関数内で `Date.now()` を直接呼ぶ。
 - 関数内で UI を操作する。
-

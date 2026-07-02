@@ -1,0 +1,13 @@
+packages:
+  - .
+
+onlyBuiltDependencies:
+  - esbuild
+
+confirmModulesPurge: false
+
+allowBuilds:
+  esbuild: true
+
+minimumReleaseAgeExclude:
+  - vite@8.1.3

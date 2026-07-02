@@ -78,7 +78,8 @@ EOL 判定、`nom audit`、SeasoningBOM 生成は、UI に依存しない純粋�
 
 UI は GitHub 風ですが、GitHub と連携するアプリではありません。
 
-- `@primer/react` と `@primer/octicons-react` を採用する。
+- `@primer/react` を採用する。
+- アイコンは最終方針が決まるまで、内部の仮 SVG アイコンを使う。
 - GitHub の情報設計をネタとして借りる。
 - 実データモデルは SeasoningBOM 独自のドメインを優先する。
 
@@ -89,4 +90,3 @@ UI は GitHub 風ですが、GitHub と連携するアプリではありませ�
 - 型でドメイン語彙を表現する。
 - 純粋関数を厚めにテストする。
 - README / AGENTS.md / docs を実装と同期する。
-

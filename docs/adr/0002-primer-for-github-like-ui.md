@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Accepted, amended 2026-07-03
 
 ## Context
 
@@ -22,9 +22,8 @@ The UI needs to feel close enough to GitHub that the joke is immediately underst
 Use:
 
 - `@primer/react`
-- `@primer/octicons-react`
 
-for the MVP UI.
+Do not use `@primer/octicons-react` in the app UI for now. Use temporary internal SVG placeholders in `src/ui/components/TemporaryIcons.tsx` until the final icon direction is decided.
 
 ## Consequences
 
@@ -33,10 +32,12 @@ Positive:
 - Strong GitHub-like visual language.
 - Faster implementation of tabs, labels, buttons, dialogs, forms.
 - Better joke clarity.
+- Icons are clearly provisional and can be replaced later without touching feature code.
 
 Negative:
 
 - Adds dependency weight.
+- Placeholder icons are less polished than a final icon set.
 - Some customization may be constrained by Primer primitives.
 
 Mitigations:
@@ -44,4 +45,4 @@ Mitigations:
 - Prefer Primer defaults.
 - Keep app-specific wrappers in `src/ui/github`.
 - Avoid over-customizing until MVP flow is complete.
-
+- Keep temporary icons centralized in `src/ui/components/TemporaryIcons.tsx`.

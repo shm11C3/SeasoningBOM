@@ -20,9 +20,9 @@ The app is intentionally funny, but food safety behavior must be conservative.
 
 ## Current Phase
 
-The repository is currently in design/documentation phase.
+The repository has an MVP web implementation scaffold and core app flow.
 
-Do not assume the implementation scaffold exists until `package.json` and `src/` are present.
+`package.json` and `src/` are present. Keep implementation work aligned with the docs and add an ADR for new architectural decisions.
 
 ## Canonical Docs
 
@@ -50,7 +50,8 @@ If implementation and docs disagree, update the docs or explain why the implemen
 - License: MIT
 - MVP target: Web first
 - Stack: React + Vite + TypeScript
-- UI: `@primer/react` + `@primer/octicons-react`
+- UI: `@primer/react`
+- Icons: temporary internal SVG placeholders in `src/ui/components/TemporaryIcons.tsx`
 - Web persistence: IndexedDB
 - IndexedDB wrapper: Dexie.js
 - React DB binding: `dexie-react-hooks` / `useLiveQuery`
@@ -102,7 +103,7 @@ Rules:
 
 ## Expected Source Layout
 
-When implementation starts, use this shape unless an ADR changes it:
+Use this source shape unless an ADR changes it:
 
 ```text
 src/
@@ -147,6 +148,33 @@ Prioritize tests for:
 
 Use fixed `now` values in tests.
 
+Keep coverage thresholds at or above 90% for statements, branches, functions, and lines unless the project intentionally revises that bar.
+
+Use the right test layer for the risk:
+
+- Pure domain behavior belongs in Vitest unit tests with fixed `now` values.
+- React feature behavior belongs in Testing Library tests through visible UI and repository contracts.
+- IndexedDB persistence, backup import/export, and reload durability should have Playwright E2E coverage.
+- For local-first persistence, prefer proving behavior through UI actions plus reload/export assertions before reaching into IndexedDB directly.
+
+When changing `src/repositories/`, `src/db/`, or backup flows, run:
+
+```bash
+pnpm test
+pnpm test:e2e
+```
+
+When changing user-facing flows, run Playwright for at least the touched workflow.
+
+Before opening or updating a PR, run:
+
+```bash
+pnpm run check
+pnpm test
+pnpm build
+pnpm test:e2e
+```
+
 ## Documentation Guidance
 
 When adding or changing behavior:
@@ -155,6 +183,18 @@ When adding or changing behavior:
 - Add an ADR for architectural decisions.
 - Keep README concise and user-facing.
 - Keep AGENTS.md practical for future agents.
+
+## PR Self-Review Guidance
+
+Before publishing a PR, check:
+
+- Domain functions still avoid React, Dexie, repositories, `Date.now()`, and `new Date()`.
+- React features still access persistence through Repository contracts.
+- Computed lifecycle status and generated SeasoningBOM snapshots are not persisted.
+- Unsupported and hazardous inventory is excluded from recommendations and shopping-list availability.
+- DB-affecting changes have reload-oriented Playwright E2E coverage.
+- CI still runs check, Vitest coverage, build, and Playwright E2E.
+- Docs and ADRs match the implementation, especially where MVP behavior is intentionally less strict than a future architecture goal.
 
 ## Copywriting Guidance
 

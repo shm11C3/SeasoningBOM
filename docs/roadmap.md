@@ -18,7 +18,7 @@ Deliverables:
 - Glossary
 - ADRs
 
-Status: current phase
+Status: done
 
 ## Phase 1: Project Scaffold
 
@@ -42,6 +42,8 @@ Exit criteria:
 - `pnpm test` works
 - empty app renders
 
+Status: done
+
 ## Phase 2: Domain Core
 
 Goal: UI より先に純粋関数を固める。
@@ -62,6 +64,8 @@ Exit criteria:
 - audit acceptance conditions pass
 - SeasoningBOM sample output matches docs
 
+Status: done
+
 ## Phase 3: Local Persistence
 
 Goal: IndexedDB でデータ保存できるようにする。
@@ -79,6 +83,8 @@ Exit criteria:
 - recipe can be saved and reloaded
 - inventory can be saved and reloaded
 - backup export/import round trip works
+
+Status: done
 
 ## Phase 4: MVP UI
 
@@ -102,9 +108,13 @@ Exit criteria:
 - user can run `nom audit`
 - user can download SeasoningBOM
 
+Status: done
+
 ## Phase 5: Polish and Public Release
 
 Goal: ジョークアプリとして公開可能な状態にする。
+
+Status: current phase
 
 Deliverables:
 
@@ -165,4 +175,3 @@ When uncertain, prioritize in this order:
 4. Local-first data durability
 5. Visual polish
 6. Future extensibility
-

@@ -34,11 +34,28 @@ It is a joke app, but food safety is not a joke: expired use-by ingredients are 
 
 ## Product Status
 
-Current phase: **design baseline**.
+Current phase: **MVP web app implemented**.
 
-This repository currently contains product and architecture documentation. The implementation scaffold will be added in a later phase.
+The React + Vite app includes local IndexedDB persistence, pure domain logic, GitHub-like recipe repository screens, inventory management, security/EOL dashboards, SeasoningBOM JSON download, and backup / restore.
 
-## Planned Tech Stack
+## Getting Started
+
+```bash
+pnpm install
+pnpm dev
+```
+
+Useful checks:
+
+```bash
+pnpm run check
+pnpm test
+pnpm build
+```
+
+The dev server defaults to `http://127.0.0.1:5173/`.
+
+## Tech Stack
 
 | Area | Decision |
 | --- | --- |
@@ -46,7 +63,7 @@ This repository currently contains product and architecture documentation. The i
 | UI | React |
 | Build | Vite |
 | UI library | `@primer/react` |
-| Icons | `@primer/octicons-react` |
+| Icons | Temporary internal SVG placeholders |
 | Web storage | IndexedDB |
 | IndexedDB wrapper | Dexie.js |
 | React data binding | `dexie-react-hooks` / `useLiveQuery` |
