@@ -1,12 +1,14 @@
 # Roadmap
 
-SeasoningBOM は Web 先行で MVP を構築し、その後にネタ強化・モバイル対応・データ連携を追加します。
+SeasoningBOM のローカル MVP は完了済みです。現在のロードマップは、既存実装を Cloudflare D1 ベースの recipe sharing service へ統合することを中心にします。
 
 ## Phase 0: Design Baseline
 
 Goal: 実装前に設計と開発ルールを固める。
 
-Deliverables:
+Status: done
+
+Delivered:
 
 - README
 - AGENTS.md
@@ -18,13 +20,13 @@ Deliverables:
 - Glossary
 - ADRs
 
+## Phase 1: Local MVP Scaffold
+
+Goal: React + Vite + TypeScript のローカル prototype を構築し、品質ツールを整える。
+
 Status: done
 
-## Phase 1: Project Scaffold
-
-Goal: React + Vite + TypeScript の空プロジェクトを構築し、品質ツールを整える。
-
-Deliverables:
+Delivered:
 
 - Vite React TypeScript setup
 - pnpm setup
@@ -35,143 +37,161 @@ Deliverables:
 - Dexie setup
 - initial folder structure
 
-Exit criteria:
+## Phase 2: Local Domain and UI MVP
 
-- `pnpm install` works
-- `pnpm check` works
-- `pnpm test` works
-- empty app renders
+Goal: 既存のローカルアプリ体験を完成させる。
 
 Status: done
 
-## Phase 2: Domain Core
+Delivered:
 
-Goal: UI より先に純粋関数を固める。
-
-Deliverables:
-
-- Type definitions
 - lifecycle status function
-- `nom audit`
+- prototype `runNomAudit`
 - `nom install` shopping list generation
 - SeasoningBOM generation
 - recipe recommendation scoring
-- unit tests
-
-Exit criteria:
-
-- lifecycle rules are covered by tests
-- audit acceptance conditions pass
-- SeasoningBOM sample output matches docs
-
-Status: done
-
-## Phase 3: Local Persistence
-
-Goal: IndexedDB でデータ保存できるようにする。
-
-Deliverables:
-
-- Dexie schema
-- Repository contracts
 - IndexedDB repository implementations
 - memory repositories for tests
 - backup export / import
-
-Exit criteria:
-
-- recipe can be saved and reloaded
-- inventory can be saved and reloaded
-- backup export/import round trip works
-
-Status: done
-
-## Phase 4: MVP UI
-
-Goal: GitHub 風 UI で主要体験を完成させる。
-
-Deliverables:
-
-- repository list
-- recipe repository detail
-- Code tab
-- Dependencies tab
-- Security tab
+- repository list and detail UI
+- Code / Dependencies / Security tabs
 - recipe editor
 - inventory screen
 - backup / restore screen
+- Vitest and Playwright coverage for the local MVP
 
-Exit criteria:
+## Phase 3: Cloud D1 Requirements Integration
 
-- user can create recipe
-- user can create inventory item
-- user can run `nom audit`
-- user can download SeasoningBOM
-
-Status: done
-
-## Phase 5: Polish and Public Release
-
-Goal: ジョークアプリとして公開可能な状態にする。
+Goal: 新しい Cloud D1 要件を docs / ADR / implementation plan に統合する。
 
 Status: current phase
 
 Deliverables:
 
-- example recipes
+- `docs/seasoningbom_requirements_cloud_d1.md` を canonical P0 要件として扱う
+- Cloudflare Pages / Workers / D1 の architecture docs
+- `owner + slug` repository identity
+- Recipe Alert と Inventory Audit の privacy boundary
+- SeasoningBOM から private inventory を除外する仕様
+- local IndexedDB adapter と production D1 adapter の境界整理
+
+Exit criteria:
+
+- docs and ADRs no longer describe IndexedDB as the production MVP persistence target
+- implementation migration slices are clear
+- tests to protect privacy boundaries are identified
+
+## Phase 4: Cloud D1 Backend MVP
+
+Goal: hosted recipe sharing service の backend を作る。
+
+Deliverables:
+
+- Cloudflare Worker API scaffold
+- D1 schema and migrations
+- GitHub OAuth login
+- users table
+- recipe repository CRUD
+- `owner + slug` uniqueness
+- public / private / unlisted authorization
+- recipe components and ingredient dependencies
+- private inventory CRUD
+- Star / Fork primitives
+- contribution events and cooking logs
+
+Exit criteria:
+
+- public repositories can be fetched without login
+- private repositories are owner-only
+- unlisted repositories are URL-accessible but not listed
+- inventory endpoints are authenticated and owner-only
+- fork records source repository
+
+## Phase 5: Frontend Cloud Migration
+
+Goal: 既存 React UI を Cloud D1 API に接続し、GitHub 風共有体験へ移行する。
+
+Deliverables:
+
+- GitHub OAuth UI states
+- `/:owner/:repo` canonical routes
+- repository create/edit flow
+- Code / Dependencies / Security tabs backed by API
+- public Recipe Alerts
+- signed-in `Your inventory audit`
+- Star and Fork interactions
+- profile contribution graph
+- SeasoningBOM download from repository content
+
+Exit criteria:
+
+- a public repository URL can be shared and opened by another user
+- owner can edit their repository
+- non-owner cannot access private repositories
+- private Inventory Audit details are not visible to public visitors
+- SeasoningBOM output excludes inventory-derived data
+
+## Phase 6: Release Polish
+
+Goal: Cloud MVP を公開可能にする。
+
+Deliverables:
+
+- example repositories
 - screenshots / demo GIF
 - README usage section
 - accessibility pass
 - responsive layout pass
 - release checklist
+- deployment docs
 
 Exit criteria:
 
 - fresh clone setup works
-- demo flow is documented
+- Cloudflare local/dev workflow is documented
 - CI is green
 - license and contribution docs are present
 
 ## P1 Features
 
-After MVP:
+After Cloud MVP:
 
+- Pull Request-style recipe suggestions
+- Issues-style warnings
 - recipe version history
+- Releases tab
 - recipe diff
 - `recipe-lock.json`
 - dependency graph visualization
-- audit result history
+- audit result history for the signed-in user
 - EOL calendar
-- shareable audit result image
 - README-style recipe page improvements
 - tags / license / maintainer fields
-- Issues-style warnings
-- Pull Request-style recipe suggestions
-- Releases tab
 
 ## P2 Features
 
 Longer-term / joke expansion:
 
-- more precise GitHub-like repository UI
+- Organizations / Teams
 - Discussions-style cooking notes
 - Actions-style cooking workflow
 - CHANGELOG-style recipe history
+- trending repositories
 - `nom outdated`
 - `nom dedupe`
 - `nom ci`
 - barcode scanning
 - receipt OCR
-- cloud sync
-- mobile SQLite implementation
+- mobile app / SQLite adapter
 
 ## Prioritization Rule
 
 When uncertain, prioritize in this order:
 
 1. Food safety correctness
-2. Domain core testability
-3. GitHub-like joke clarity
-4. Local-first data durability
-5. Visual polish
-6. Future extensibility
+2. Privacy and authorization boundaries
+3. Domain core testability
+4. GitHub-like joke clarity
+5. Existing local prototype durability
+6. Visual polish
+7. Future extensibility

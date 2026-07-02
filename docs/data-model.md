@@ -2,7 +2,7 @@
 
 SeasoningBOM のデータモデルは、料理を Repository、材料を Dependencies、賞味期限を EOL として扱うためのドメインモデルです。
 
-MVP では IndexedDB に保存しますが、データモデル自体は永続化方式に依存しません。
+Cloud D1 MVP では Repository は `owner handle + slug` で識別します。既存 IndexedDB 実装の `slug` 単独ルートはプロトタイプ互換の扱いです。
 
 ## Entity Overview
 
@@ -24,9 +24,11 @@ AppSettings
 ```ts
 type RecipeRepositoryEntity = {
   id: string;
+  ownerHandle: string;
   name: string;
   slug: string;
   description?: string;
+  visibility: "public" | "private" | "unlisted";
   version: string;
   servings: number;
   tags: string[];
@@ -43,15 +45,25 @@ type RecipeRepositoryEntity = {
 | Field | Meaning |
 | --- | --- |
 | `id` | 内部 ID。UUID を想定 |
+| `ownerHandle` | Repository owner の SeasoningBOM handle |
 | `name` | 表示名。例: `Curry Rice` |
-| `slug` | URL / ファイル名向け識別子。例: `curry-rice` |
+| `slug` | owner 内で一意な URL 用識別子。例: `curry-rice` |
 | `description` | Repository description |
+| `visibility` | `public`, `private`, `unlisted` |
 | `version` | レシピバージョン。SemVer 風文字列 |
 | `servings` | 何人分か |
 | `tags` | `budget`, `eol-rescue`, `japanese` など |
 | `license` | ネタ用。例: `Mother's Taste License` |
 | `maintainer` | 作成者 |
 | `readme` | README 風の説明文 |
+
+Identity:
+
+- Canonical route: `/:owner/:repo`
+- API identity: `{ ownerHandle, repositorySlug }`
+- DB uniqueness: `UNIQUE(owner_user_id, slug)`
+- `slug` 単独はグローバル一意ではない。
+- `ownerHandle` is `users.username`, initialized from GitHub OAuth at first login and stable in P0.
 
 ## Recipe Component
 
@@ -291,4 +303,3 @@ Reasoning:
 - `bestBeforeDate` / `useByDate` は `YYYY-MM-DD`。
 - `createdAt` / `updatedAt` / `generatedAt` は ISO datetime。
 - lifecycle 判定は呼び出し側から `now` を渡して決定する。
-

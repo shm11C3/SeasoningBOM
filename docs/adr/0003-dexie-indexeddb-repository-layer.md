@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Superseded by ADR 0005 for production MVP persistence. Dexie-backed IndexedDB remains acceptable as a local prototype/development adapter.
 
 ## Context
 
@@ -50,4 +50,3 @@ Mitigations:
 - Keep contracts small.
 - Add memory repositories for tests.
 - Avoid leaking Dexie types outside indexeddb implementation.
-

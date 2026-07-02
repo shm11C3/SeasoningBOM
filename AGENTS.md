@@ -4,7 +4,7 @@ This file gives AI coding agents project-specific guidance for SeasoningBOM.
 
 ## Project Summary
 
-SeasoningBOM is a local-first joke recipe app.
+SeasoningBOM is a GitHub-parody recipe sharing service for engineers.
 
 It treats:
 
@@ -15,14 +15,16 @@ It treats:
 - recipe checks as `nom audit`
 - shopping list generation as `nom install`
 - recipe snapshots as SeasoningBOM JSON
+- public recipe alerts as repository security alerts
+- private inventory audits as owner-only security checks
 
 The app is intentionally funny, but food safety behavior must be conservative.
 
 ## Current Phase
 
-The repository has an MVP web implementation scaffold and core app flow.
+The repository has an MVP web implementation scaffold and core local app flow.
 
-`package.json` and `src/` are present. Keep implementation work aligned with the docs and add an ADR for new architectural decisions.
+The current product direction is the Cloudflare D1 recipe sharing MVP in `docs/seasoningbom_requirements_cloud_d1.md`. Existing IndexedDB code is a local prototype/development adapter and migration base. Keep implementation work aligned with the docs and add an ADR for new architectural decisions.
 
 ## Canonical Docs
 
@@ -37,7 +39,11 @@ Read these before making architectural changes:
 7. `docs/glossary.md`
 8. `docs/adr/`
 
-Original requirements are in:
+Current canonical product requirements are in:
+
+- `docs/seasoningbom_requirements_cloud_d1.md`
+
+Original local-first requirements are historical and remain useful for prior context:
 
 - `docs/requirements.md`
 
@@ -48,13 +54,17 @@ If implementation and docs disagree, update the docs or explain why the implemen
 - App name: `SeasoningBOM`
 - Package name: `seasoning-bom`
 - License: MIT
-- MVP target: Web first
+- MVP target: Web recipe sharing service
 - Stack: React + Vite + TypeScript
 - UI: `@primer/react`
 - Icons: temporary internal SVG placeholders in `src/ui/components/TemporaryIcons.tsx`
-- Web persistence: IndexedDB
-- IndexedDB wrapper: Dexie.js
-- React DB binding: `dexie-react-hooks` / `useLiveQuery`
+- Hosting target: Cloudflare Pages
+- API target: Cloudflare Workers
+- Production persistence target: Cloudflare D1
+- Auth target: GitHub OAuth
+- Local prototype persistence: IndexedDB
+- Local prototype IndexedDB wrapper: Dexie.js
+- Local prototype React DB binding: `dexie-react-hooks` / `useLiveQuery`
 - Package manager: pnpm
 - Lint / format: Biome
 - Tests: Vitest + Testing Library
@@ -67,7 +77,8 @@ If implementation and docs disagree, update the docs or explain why the implemen
 Keep these as UI-independent and DB-independent pure functions:
 
 - lifecycle status calculation
-- `nom audit`
+- public Recipe Alert generation
+- private Inventory Audit generation
 - SeasoningBOM generation
 - `nom install` shopping list generation
 - recipe recommendation scoring
@@ -81,15 +92,19 @@ Use Repository contracts for persistence.
 Allowed:
 
 - `features` call Repository contracts
+- Cloudflare implementation uses Workers / D1 behind contracts or API clients
 - IndexedDB implementation uses Dexie
 
 Forbidden:
 
 - React components directly accessing Dexie tables
+- React components directly accessing D1
 - `domain/` importing Dexie
+- `domain/` importing Cloudflare bindings
 - `domain/` importing React
 - storing computed lifecycle status in DB
 - storing generated SeasoningBOM snapshots in DB
+- including Inventory Audit details in public SeasoningBOM output
 
 ### Safety beats jokes
 
@@ -112,9 +127,11 @@ src/
   domain/
   repositories/
     contracts/
+    cloudflare-d1/
     indexeddb/
     memory/
   db/
+  workers/
   ui/
   test/
 ```
@@ -129,22 +146,28 @@ Use:
 - `RecipeComponent` for ingredients in a recipe
 - `InventoryItem` for fridge/pantry items
 - `LifecycleStatus` for `active | deprecated | eol | unsupported | hazardous`
+- `UserHandle` / `ownerHandle` for stable SeasoningBOM URL ownership
+- `RecipeAlert` for repository-derived public alerts
+- `InventoryAudit` for owner-private inventory-derived audit results
 
 Avoid:
 
 - Renaming EOL to "expiration" in UI unless explaining to non-technical users
 - Calling use-by expiration "EOL"; it is `unsupported`
 - Treating joke recipe licenses as the real source license
+- Mixing public Recipe Alerts and private Inventory Audit issues in one serialized result
+- Treating a live GitHub username as the mutable source of repository URLs
 
 ## Testing Guidance
 
 Prioritize tests for:
 
 1. lifecycle status edge cases
-2. `nom audit` severity rules
+2. Recipe Alert vs Inventory Audit privacy boundaries
 3. unsupported / hazardous exclusion
-4. SeasoningBOM output shape
-5. backup import/export round trip
+4. SeasoningBOM output shape and inventory-data exclusion
+5. owner + slug repository identity and visibility authorization
+6. backup import/export round trip for the local prototype adapter
 
 Use fixed `now` values in tests.
 
@@ -155,7 +178,8 @@ Use the right test layer for the risk:
 - Pure domain behavior belongs in Vitest unit tests with fixed `now` values.
 - React feature behavior belongs in Testing Library tests through visible UI and repository contracts.
 - IndexedDB persistence, backup import/export, and reload durability should have Playwright E2E coverage.
-- For local-first persistence, prefer proving behavior through UI actions plus reload/export assertions before reaching into IndexedDB directly.
+- For the local prototype, prefer proving persistence behavior through UI actions plus reload/export assertions before reaching into IndexedDB directly.
+- Cloud D1 access-control behavior should be covered at the API/Worker layer and with E2E tests for public/private/unlisted visibility.
 
 When changing `src/repositories/`, `src/db/`, or backup flows, run:
 
@@ -191,6 +215,8 @@ Before publishing a PR, check:
 - Domain functions still avoid React, Dexie, repositories, `Date.now()`, and `new Date()`.
 - React features still access persistence through Repository contracts.
 - Computed lifecycle status and generated SeasoningBOM snapshots are not persisted.
+- Public Recipe Alerts and private Inventory Audit issues remain separate.
+- SeasoningBOM JSON excludes Inventory Audit details.
 - Unsupported and hazardous inventory is excluded from recommendations and shopping-list availability.
 - DB-affecting changes have reload-oriented Playwright E2E coverage.
 - CI still runs check, Vitest coverage, build, and Playwright E2E.

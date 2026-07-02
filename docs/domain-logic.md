@@ -76,10 +76,61 @@ Example:
 
 ## `nom audit`
 
-`nom audit` は、レシピと冷蔵庫インベントリを照合し、問題を検出するドメイン機能です。
+`nom audit` は UI / command copy の総称です。Cloud D1 MVP では、結果を次の 2 種類に分けます。
+
+- **Recipe Alert**: Repository 内容だけから作る公開可能な alert
+- **Inventory Audit**: Repository とログイン本人の Inventory を照合する本人限定 audit
+
+Public API、Security tab、SeasoningBOM はこの境界を保ちます。Inventory 由来の EOL、unsupported、hazardous、不足、数量不足は public alert や public SeasoningBOM に含めません。
+
+既存プロトタイプの `runNomAudit` は Recipe Alert と Inventory Audit を 1 つの `AuditResult` にまとめています。Cloud D1 MVP 実装へ移行する際は、この関数を public/private の 2 出力へ分割します。
 
 ```ts
-type NomAuditInput = {
+type AuditSeverity = "low" | "medium" | "high" | "critical";
+
+type RecipeAlertCategory =
+  | "allergen"
+  | "transitive-dependency"
+  | "dependency-depth"
+  | "substitute"
+  | "license";
+
+type InventoryAuditCategory =
+  | "eol"
+  | "unsupported"
+  | "hazardous"
+  | "missing"
+  | "quantity"
+  | "substitute";
+
+type RecipeAlert = {
+  id: string;
+  severity: AuditSeverity;
+  category: RecipeAlertCategory;
+  componentName?: string;
+  message: string;
+  recommendation?: string;
+};
+
+type InventoryAuditIssue = {
+  id: string;
+  severity: AuditSeverity;
+  category: InventoryAuditCategory;
+  componentName?: string;
+  inventoryItemId?: string;
+  message: string;
+  recommendation?: string;
+};
+
+type AuditSummary = {
+  totalIssues: number;
+  critical: number;
+  high: number;
+  medium: number;
+  low: number;
+};
+
+type InventoryAuditInput = {
   recipe: RecipeRepositoryEntity;
   components: RecipeComponent[];
   inventoryItems: InventoryItem[];
@@ -87,38 +138,19 @@ type NomAuditInput = {
   settings: AppSettings;
 };
 
-type AuditResult = {
+type InventoryAuditResult = {
   recipeId: string;
   generatedAt: string;
   summary: AuditSummary;
-  issues: AuditIssue[];
-};
-```
-
-## Audit Issue
-
-```ts
-type AuditIssue = {
-  id: string;
-  severity: AuditSeverity;
-  category: AuditCategory;
-  componentName?: string;
-  inventoryItemId?: string;
-  message: string;
-  recommendation?: string;
+  issues: InventoryAuditIssue[];
 };
 
-type AuditSeverity = "low" | "medium" | "high" | "critical";
-
-type AuditCategory =
-  | "eol"
-  | "unsupported"
-  | "hazardous"
-  | "allergen"
-  | "missing"
-  | "transitive-dependency"
-  | "substitute"
-  | "license";
+type NomAuditResult = {
+  recipeId: string;
+  generatedAt: string;
+  recipeAlerts: RecipeAlert[];
+  inventoryAudit?: InventoryAuditResult;
+};
 ```
 
 ## Severity Rules
@@ -130,7 +162,45 @@ type AuditCategory =
 | `high` | 賞味期限切れ、主要材料不足 |
 | `critical` | 消費期限切れ、hazardous、重大アレルゲン |
 
-## Audit Checks
+## Recipe Alert Checks
+
+Recipe Alert checks use only Repository content.
+
+### 1. Allergen check
+
+component と transitive dependency の allergen を検出します。
+
+MVP ではユーザーごとのアレルゲンプロファイルは持たず、「含まれている」ことを security alert 風に表示します。
+
+P1 以降で `blockedAllergens` 設定を追加できます。
+
+### 2. Transitive dependency check
+
+直接材料が内部依存を持つ場合に表示します。
+
+Example:
+
+```text
+LOW curry-roux contains transitive dependency: wheat
+```
+
+### 3. Dependency depth check
+
+推移的依存が深くなる場合に low issue として表示できます。
+
+### 4. Substitute metadata check
+
+Repository に宣言された substitute dependency は public metadata として表示できます。ただし、本人の Inventory で代替可能かどうかは Inventory Audit 側で扱います。
+
+### 5. License joke check
+
+`license` が `Secret Sauce`, `Mother's Taste License` などの場合、再利用注意を low issue として出すことがあります。
+
+これはネタ表示であり、実際の OSS ライセンス判定ではありません。
+
+## Inventory Audit Checks
+
+Inventory Audit checks require the signed-in user's private Inventory.
 
 ### 1. Missing dependency check
 
@@ -158,42 +228,22 @@ inventory item の lifecycle status に応じて issue を出します。
 | `unsupported` | `critical` |
 | `hazardous` | `critical` |
 
-### 4. Allergen check
-
-component と transitive dependency の allergen を検出します。
-
-MVP ではユーザーごとのアレルゲンプロファイルは持たず、「含まれている」ことを security alert 風に表示します。
-
-P1 以降で `blockedAllergens` 設定を追加できます。
-
-### 5. Transitive dependency check
-
-直接材料が内部依存を持つ場合に表示します。
-
-Example:
-
-```text
-LOW curry-roux contains transitive dependency: wheat
-```
-
-### 6. Substitute check
+### 4. Substitute availability check
 
 required component が不足しており alternatives が設定されている場合、代替候補を recommendation に含めます。
-
-### 7. License joke check
-
-`license` が `Secret Sauce`, `Mother's Taste License` などの場合、再利用注意を low issue として出すことがあります。
-
-これはネタ表示であり、実際の OSS ライセンス判定ではありません。
 
 ## Audit Output Example
 
 ```text
-nom audit found 4 issues.
+Recipe alerts
+
+MEDIUM    curry-roux declares allergen dependency: wheat
+LOW       curry-roux contains transitive dependency: milk
+
+Your inventory audit
 
 HIGH      tofu@300g has reached EOL
 MEDIUM    milk@1L will reach EOL in 1 day
-LOW       curry-roux contains transitive dependency: wheat
 CRITICAL  chicken@200g is unsupported
 ```
 
@@ -254,10 +304,8 @@ SeasoningBOM はレシピ詳細画面から都度生成する snapshot です。
 type GenerateSeasoningBOMInput = {
   recipe: RecipeRepositoryEntity;
   components: RecipeComponent[];
-  inventoryItems: InventoryItem[];
-  audit: AuditResult;
+  recipeAlerts: RecipeAlert[];
   generatedAt: Date;
-  settings: AppSettings;
 };
 ```
 
@@ -266,15 +314,16 @@ Rules:
 - `bomFormat` は `"SeasoningBOM"`。
 - `specVersion` は `"0.1.0"`。
 - direct dependencies と transitive dependencies を含める。
-- lifecycle status は生成時点の snapshot として含める。
-- audit result も snapshot として含める。
+- public Recipe Alert を含める。
+- private Inventory Item、lifecycle status、Inventory Audit result は含めない。
 
 ## Pure Function Rule
 
 以下の関数はすべて純粋関数として実装します。
 
 - `calculateLifecycleStatus`
-- `runNomAudit`
+- `generateRecipeAlerts`
+- `runInventoryAudit`
 - `generateSeasoningBOM`
 - `generateShoppingList`
 - `recommendRecipes`

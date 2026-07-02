@@ -10,12 +10,13 @@
 | [architecture.md](architecture.md) | レイヤ構成、技術選定、データフロー、テスト方針 |
 | [data-model.md](data-model.md) | エンティティと型定義 |
 | [domain-logic.md](domain-logic.md) | lifecycle 判定、`nom audit`、SeasoningBOM 生成などの純粋ロジック |
-| [repository-layer.md](repository-layer.md) | 永続化抽象と IndexedDB 実装方針 |
+| [repository-layer.md](repository-layer.md) | 永続化抽象、Cloud D1 実装方針、IndexedDB prototype adapter |
 | [ui-design.md](ui-design.md) | GitHub 風 UI、画面、コピーガイド |
 | [seasoning-bom-format.md](seasoning-bom-format.md) | SeasoningBOM JSON 形式仕様 |
 | [glossary.md](glossary.md) | 用語集と命名ルール |
 | [roadmap.md](roadmap.md) | フェーズ計画と優先順位 |
-| [requirements.md](requirements.md) | 元の要件一覧（一次情報） |
+| [seasoningbom_requirements_cloud_d1.md](seasoningbom_requirements_cloud_d1.md) | 現在の Cloud D1 MVP 要件一覧 |
+| [requirements.md](requirements.md) | 元の local-first 要件一覧（履歴） |
 
 ## Architecture Decision Records
 
@@ -25,6 +26,9 @@
 | [0002](adr/0002-primer-for-github-like-ui.md) | Use Primer for GitHub-like UI |
 | [0003](adr/0003-dexie-indexeddb-repository-layer.md) | Dexie-backed IndexedDB behind Repository contracts |
 | [0004](adr/0004-domain-logic-as-pure-functions.md) | Keep domain logic as pure functions |
+| [0005](adr/0005-cloudflare-d1-recipe-sharing-mvp.md) | Cloudflare D1 recipe sharing MVP |
+| [0006](adr/0006-split-recipe-alerts-and-inventory-audits.md) | Split public Recipe Alerts and private Inventory Audits |
+| [0007](adr/0007-stable-user-handles-for-repository-urls.md) | Stable User Handles for Repository URLs |
 
 ## Reading Order
 
@@ -39,4 +43,3 @@
 7. `seasoning-bom-format.md`
 8. `glossary.md`
 9. `roadmap.md`
-

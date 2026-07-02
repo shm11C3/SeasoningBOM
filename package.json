@@ -1,7 +1,7 @@
 {
   "name": "seasoning-bom",
   "version": "0.1.0",
-  "description": "A local-first joke recipe app that treats recipes like repositories and ingredients like dependencies.",
+  "description": "A GitHub-parody recipe sharing service that treats recipes like repositories and ingredients like dependencies.",
   "license": "MIT",
   "type": "module",
   "private": true,
