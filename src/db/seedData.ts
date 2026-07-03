@@ -33,9 +33,11 @@ function createSeedRecipes(timestamp: string): RecipeRepositoryEntity[] {
   return [
     {
       id: "recipe-curry-rice",
+      ownerHandle: "me",
       name: "Curry Rice",
       slug: "curry-rice",
       description: "家庭用カレーライスの安定版レシピ。",
+      visibility: "public",
       version: "1.2.0",
       servings: 4,
       tags: ["japanese", "eol-rescue", "weeknight"],
@@ -48,9 +50,11 @@ function createSeedRecipes(timestamp: string): RecipeRepositoryEntity[] {
     },
     {
       id: "recipe-tofu-salad",
+      ownerHandle: "me",
       name: "Tofu Salad",
       slug: "tofu-salad",
       description: "EOL 間近の豆腐を安全に使い切るための軽い副菜。",
+      visibility: "public",
       version: "0.4.1",
       servings: 2,
       tags: ["quick", "vegetarian"],

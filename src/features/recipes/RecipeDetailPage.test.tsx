@@ -24,7 +24,7 @@ vi.mock("../useLiveData", () => ({
 
 describe("RecipeDetailPage", () => {
   beforeEach(() => {
-    window.history.pushState({}, "", "/repositories/curry-rice");
+    window.history.pushState({}, "", "/me/curry-rice");
   });
 
   it("renders code, dependency, and security views for a repository", async () => {
@@ -53,7 +53,7 @@ describe("RecipeDetailPage", () => {
       settings: makeSettings(),
     };
 
-    render(<RecipeDetailPage slug="curry-rice" />);
+    render(<RecipeDetailPage ownerHandle="me" slug="curry-rice" />);
 
     expect(screen.getByRole("heading", { name: "Curry Rice" })).toBeInTheDocument();
     expect(screen.getByText("nom audit found 3 issues.")).toBeInTheDocument();
@@ -65,6 +65,8 @@ describe("RecipeDetailPage", () => {
 
     await user.click(screen.getByRole("tab", { name: "Security" }));
     expect(screen.getByRole("heading", { name: "Security alerts" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Recipe alerts" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Your inventory audit" })).toBeInTheDocument();
     expect(screen.getByText("rice has reached EOL")).toBeInTheDocument();
   });
 
@@ -83,13 +85,17 @@ describe("RecipeDetailPage", () => {
       settings: makeSettings(),
     };
 
-    render(<RecipeDetailPage slug="curry-rice" />);
+    render(<RecipeDetailPage ownerHandle="me" slug="curry-rice" />);
 
     await user.click(screen.getByRole("button", { name: "Download SBOM" }));
     expect(downloadJsonMock).toHaveBeenCalledWith(
       "curry-rice-seasoningbom.json",
-      expect.objectContaining({ bomFormat: "SeasoningBOM" }),
+      expect.objectContaining({
+        bomFormat: "SeasoningBOM",
+        repository: expect.objectContaining({ owner: "me", name: "curry-rice" }),
+      }),
     );
+    expect(downloadJsonMock.mock.calls[0]?.[1].components[0]).not.toHaveProperty("lifecycle");
     expect(screen.getByText("SeasoningBOM JSON downloaded.")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Delete" }));
@@ -106,7 +112,26 @@ describe("RecipeDetailPage", () => {
       settings: makeSettings(),
     };
 
-    render(<RecipeDetailPage slug="missing" />);
+    render(<RecipeDetailPage ownerHandle="me" slug="missing" />);
     expect(screen.getByText("Repository not found")).toBeInTheDocument();
+  });
+
+  it("shows empty recipe alert and inventory audit sections", async () => {
+    const user = userEvent.setup();
+    liveDataMock.current = {
+      components: [],
+      inventoryItems: [],
+      recipes: [makeRecipe({ license: undefined, readme: undefined })],
+      repositories: { recipes: { delete: vi.fn() } },
+      settings: makeSettings(),
+    };
+
+    render(<RecipeDetailPage ownerHandle="me" slug="curry-rice" />);
+
+    await user.click(screen.getByRole("tab", { name: "Security" }));
+
+    expect(screen.getByText("No active audit issues")).toBeInTheDocument();
+    expect(screen.getByText("No public recipe alerts")).toBeInTheDocument();
+    expect(screen.getByText("No private inventory audit issues")).toBeInTheDocument();
   });
 });

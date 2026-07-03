@@ -30,6 +30,17 @@ export class MemoryRecipeRepository implements RecipeRepository {
     return this.recipes.get(id) ?? null;
   }
 
+  async findByOwnerAndSlug(
+    ownerHandle: string,
+    slug: string,
+  ): Promise<RecipeRepositoryEntity | null> {
+    return (
+      [...this.recipes.values()].find(
+        (recipe) => recipe.ownerHandle === ownerHandle && recipe.slug === slug,
+      ) ?? null
+    );
+  }
+
   async findBySlug(slug: string): Promise<RecipeRepositoryEntity | null> {
     return [...this.recipes.values()].find((recipe) => recipe.slug === slug) ?? null;
   }
@@ -132,13 +143,14 @@ export class MemoryBackupRepository implements BackupRepository {
   }
 
   async importAll(backup: SeasoningBOMAppBackup, _options: ImportOptions): Promise<ImportResult> {
-    for (const recipe of backup.repositories) {
+    const repositories = backup.repositories.map(normalizeRecipeRepository);
+    for (const recipe of repositories) {
       await this.repositories.recipes.save(recipe);
     }
     for (const item of backup.inventoryItems) {
       await this.repositories.inventory.save(item);
     }
-    const recipeIds = new Set(backup.repositories.map((recipe) => recipe.id));
+    const recipeIds = new Set(repositories.map((recipe) => recipe.id));
     for (const recipeId of recipeIds) {
       await this.repositories.components.saveMany(
         recipeId,
@@ -147,12 +159,20 @@ export class MemoryBackupRepository implements BackupRepository {
     }
     await this.repositories.settings.save(backup.settings);
     return {
-      importedRepositories: backup.repositories.length,
+      importedRepositories: repositories.length,
       importedComponents: backup.components.length,
       importedInventoryItems: backup.inventoryItems.length,
       warnings: [],
     };
   }
+}
+
+function normalizeRecipeRepository(recipe: RecipeRepositoryEntity): RecipeRepositoryEntity {
+  return {
+    ...recipe,
+    ownerHandle: recipe.ownerHandle ?? "me",
+    visibility: recipe.visibility ?? "public",
+  };
 }
 
 export function createMemoryRepositories(): RepositorySet {

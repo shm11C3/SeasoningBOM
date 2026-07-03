@@ -19,6 +19,8 @@ describe("Memory repositories", () => {
     await expect(repositories.recipes.findAll()).resolves.toEqual([salad, curry]);
     await expect(repositories.recipes.findById(curry.id)).resolves.toEqual(curry);
     await expect(repositories.recipes.findBySlug(salad.slug)).resolves.toEqual(salad);
+    await expect(repositories.recipes.findByOwnerAndSlug("me", salad.slug)).resolves.toEqual(salad);
+    await expect(repositories.recipes.findByOwnerAndSlug("other", salad.slug)).resolves.toBeNull();
 
     await repositories.recipes.delete(curry.id);
 

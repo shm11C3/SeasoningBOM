@@ -3,10 +3,12 @@ import type { ReactNode } from "react";
 import { useMemo, useState } from "react";
 import { navigate } from "../../app/routes";
 import {
+  type AuditIssue,
   calculateLifecycleStatus,
   generateSeasoningBOM,
   generateShoppingList,
   runNomAudit,
+  summarizeIssues,
 } from "../../domain";
 import { EmptyState } from "../../ui/components/EmptyState";
 import { DependencyLabel, LifecycleLabel, SeverityLabel } from "../../ui/components/Labels";
@@ -28,12 +30,12 @@ import { useLiveData } from "../useLiveData";
 
 type Tab = "code" | "dependencies" | "security";
 
-export function RecipeDetailPage({ slug }: { slug: string }) {
+export function RecipeDetailPage({ ownerHandle, slug }: { ownerHandle: string; slug: string }) {
   const { repositories, recipes, components, inventoryItems, settings } = useLiveData();
   const [tab, setTab] = useState<Tab>("code");
   const [message, setMessage] = useState<string | null>(null);
   const now = useMemo(() => new Date(), []);
-  const recipe = recipes.find((item) => item.slug === slug);
+  const recipe = recipes.find((item) => item.ownerHandle === ownerHandle && item.slug === slug);
   const recipeComponents = recipe
     ? components.filter((component) => component.recipeId === recipe.id)
     : [];
@@ -78,10 +80,8 @@ export function RecipeDetailPage({ slug }: { slug: string }) {
     const bom = generateSeasoningBOM({
       recipe: currentRecipe,
       components: recipeComponents,
-      inventoryItems,
-      audit,
       generatedAt: new Date(),
-      settings,
+      recipeAlerts: audit.recipeAlerts,
     });
     downloadJson(`${currentRecipe.slug}-seasoningbom.json`, bom);
     setMessage("SeasoningBOM JSON downloaded.");
@@ -95,13 +95,15 @@ export function RecipeDetailPage({ slug }: { slug: string }) {
           <div>
             <div className="repo-path">
               <RepoIcon />
-              <AppLink to="/">me</AppLink>
+              <AppLink to={`/users/${currentRecipe.ownerHandle}`}>
+                {currentRecipe.ownerHandle}
+              </AppLink>
               <span>/</span>
               <span>{currentRecipe.slug}</span>
             </div>
             <p className="muted">{currentRecipe.description}</p>
             <div className="label-row">
-              <Label>Public</Label>
+              <Label>{currentRecipe.visibility}</Label>
               <Label variant="accent">v{currentRecipe.version}</Label>
               {currentRecipe.tags.map((tag) => (
                 <Label key={tag}>{tag}</Label>
@@ -113,12 +115,16 @@ export function RecipeDetailPage({ slug }: { slug: string }) {
               <span>{currentRecipe.servings} servings</span>
               <span>{fakeStars(currentRecipe, recipeComponents)} stars</span>
               <span>{fakeForks(currentRecipe)} forks</span>
-              <span>{audit?.summary.totalIssues ?? 0} alerts</span>
+              <span>
+                {(audit?.recipeAlerts.length ?? 0) +
+                  (audit?.inventoryAudit.summary.totalIssues ?? 0)}{" "}
+                alerts
+              </span>
             </div>
             <div className="action-row">
               <Button
                 type="button"
-                onClick={() => navigate(`/repositories/${currentRecipe.slug}/edit`)}
+                onClick={() => navigate(`/${currentRecipe.ownerHandle}/${currentRecipe.slug}/edit`)}
               >
                 <PencilIcon /> Edit
               </Button>
@@ -158,7 +164,9 @@ export function RecipeDetailPage({ slug }: { slug: string }) {
             readme={currentRecipe.readme}
             components={recipeComponents}
             shoppingList={shoppingList}
-            issueCount={audit?.summary.totalIssues ?? 0}
+            issueCount={
+              (audit?.recipeAlerts.length ?? 0) + (audit?.inventoryAudit.summary.totalIssues ?? 0)
+            }
             onAudit={() => setTab("security")}
           />
         ) : null}
@@ -319,12 +327,49 @@ function DependenciesTab({
 }
 
 function SecurityTab({ audit }: { audit: NonNullable<ReturnType<typeof runNomAudit>> }) {
-  const groups = groupIssuesBySeverity(audit.issues);
+  const recipeAlertGroups = groupIssuesBySeverity(audit.recipeAlerts);
+  const inventoryGroups = groupIssuesBySeverity(audit.inventoryAudit.issues);
+  const recipeAlertSummary = summarizeIssues(audit.recipeAlerts);
   return (
     <div className="surface readme">
       <h2>Security alerts</h2>
-      <p className="muted">nom audit found {audit.summary.totalIssues} issues.</p>
-      {audit.issues.length === 0 ? <EmptyState title="No active audit issues" /> : null}
+      <p className="muted">
+        Recipe alerts: {recipeAlertSummary.totalIssues}. Your inventory audit:{" "}
+        {audit.inventoryAudit.summary.totalIssues}.
+      </p>
+      {audit.recipeAlerts.length === 0 && audit.inventoryAudit.issues.length === 0 ? (
+        <EmptyState title="No active audit issues" />
+      ) : null}
+      <IssueGroups
+        groups={recipeAlertGroups}
+        title="Recipe alerts"
+        emptyTitle="No public recipe alerts"
+      />
+      <IssueGroups
+        groups={inventoryGroups}
+        title="Your inventory audit"
+        emptyTitle="No private inventory audit issues"
+      />
+    </div>
+  );
+}
+
+function IssueGroups({
+  groups,
+  title,
+  emptyTitle,
+}: {
+  groups: Record<"critical" | "high" | "medium" | "low", AuditIssue[]>;
+  title: string;
+  emptyTitle: string;
+}) {
+  const total = Object.values(groups).reduce((sum, issues) => sum + issues.length, 0);
+  return (
+    <section className="section">
+      <div className="section-header">
+        <h2>{title}</h2>
+      </div>
+      {total === 0 ? <EmptyState title={emptyTitle} /> : null}
       {(["critical", "high", "medium", "low"] as const).map((severity) =>
         groups[severity].length > 0 ? (
           <section className="section" key={severity}>
@@ -348,7 +393,7 @@ function SecurityTab({ audit }: { audit: NonNullable<ReturnType<typeof runNomAud
           </section>
         ) : null,
       )}
-    </div>
+    </section>
   );
 }
 

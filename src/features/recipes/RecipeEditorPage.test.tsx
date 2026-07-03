@@ -14,7 +14,7 @@ vi.mock("../useLiveData", () => ({
 
 describe("RecipeEditorPage", () => {
   beforeEach(() => {
-    window.history.pushState({}, "", "/repositories/new/edit");
+    window.history.pushState({}, "", "/new");
   });
 
   it("validates and saves a new recipe with parsed dependencies", async () => {
@@ -30,7 +30,7 @@ describe("RecipeEditorPage", () => {
       },
     };
 
-    render(<RecipeEditorPage slug="new" />);
+    render(<RecipeEditorPage ownerHandle="me" slug="new" />);
 
     await user.click(screen.getByRole("button", { name: "Save changes" }));
     expect(screen.getByText("Recipe name is required.")).toBeInTheDocument();
@@ -58,9 +58,11 @@ describe("RecipeEditorPage", () => {
       expect.objectContaining({
         description: "Safe weeknight curry",
         name: "Test Curry",
+        ownerHandle: "me",
         servings: 4,
         slug: "test-curry",
         tags: ["quick", "safe"],
+        visibility: "public",
       }),
     );
     expect(saveMany).toHaveBeenCalledWith(expect.any(String), [
@@ -77,7 +79,7 @@ describe("RecipeEditorPage", () => {
         ],
       }),
     ]);
-    expect(window.location.pathname).toBe("/repositories/test-curry");
+    expect(window.location.pathname).toBe("/me/test-curry");
   });
 
   it("loads, edits, removes dependencies, and cancels existing recipes", async () => {
@@ -100,7 +102,7 @@ describe("RecipeEditorPage", () => {
       },
     };
 
-    render(<RecipeEditorPage slug="curry-rice" />);
+    render(<RecipeEditorPage ownerHandle="me" slug="curry-rice" />);
 
     expect(await screen.findByDisplayValue("Curry Rice")).toBeInTheDocument();
     expect(screen.getByDisplayValue("soy")).toBeInTheDocument();
@@ -112,7 +114,7 @@ describe("RecipeEditorPage", () => {
     expect(screen.getAllByLabelText("Ingredient")).toHaveLength(1);
 
     await user.click(screen.getByRole("button", { name: "Cancel" }));
-    expect(window.location.pathname).toBe("/repositories/curry-rice");
+    expect(window.location.pathname).toBe("/me/curry-rice");
   });
 
   it("shows not found for missing existing recipes", async () => {
@@ -125,7 +127,7 @@ describe("RecipeEditorPage", () => {
       },
     };
 
-    render(<RecipeEditorPage slug="missing" />);
+    render(<RecipeEditorPage ownerHandle="me" slug="missing" />);
 
     await waitFor(() => expect(screen.getByText("Repository not found")).toBeInTheDocument());
   });

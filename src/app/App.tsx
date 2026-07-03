@@ -6,6 +6,7 @@ import { EolDashboardPage } from "../features/audit/EolDashboardPage";
 import { SecurityPage } from "../features/audit/SecurityPage";
 import { BackupPage } from "../features/backup/BackupPage";
 import { InventoryPage } from "../features/inventory/InventoryPage";
+import { ProfilePage } from "../features/profile/ProfilePage";
 import { DashboardPage } from "../features/recipes/DashboardPage";
 import { RecipeDetailPage } from "../features/recipes/RecipeDetailPage";
 import { RecipeEditorPage } from "../features/recipes/RecipeEditorPage";
@@ -63,12 +64,17 @@ export function App() {
           <main className="app-main">
             {seedError ? <div className="flash flash-danger">{seedError}</div> : null}
             {route.name === "dashboard" ? <DashboardPage /> : null}
-            {route.name === "repository" ? <RecipeDetailPage slug={route.slug} /> : null}
-            {route.name === "repository-edit" ? <RecipeEditorPage slug={route.slug} /> : null}
+            {route.name === "repository" ? (
+              <RecipeDetailPage ownerHandle={route.ownerHandle} slug={route.slug} />
+            ) : null}
+            {route.name === "repository-edit" ? (
+              <RecipeEditorPage ownerHandle={route.ownerHandle} slug={route.slug} />
+            ) : null}
             {route.name === "inventory" ? <InventoryPage /> : null}
             {route.name === "security" ? <SecurityPage /> : null}
             {route.name === "eol" ? <EolDashboardPage /> : null}
             {route.name === "backup" ? <BackupPage /> : null}
+            {route.name === "profile" ? <ProfilePage username={route.username} /> : null}
             {route.name === "not-found" ? (
               <div className="empty-state">
                 <strong>Route not found</strong>

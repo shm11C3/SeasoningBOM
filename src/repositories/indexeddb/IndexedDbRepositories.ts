@@ -24,6 +24,18 @@ export class IndexedDbRecipeRepository implements RecipeRepository {
     return (await this.db.recipeRepositories.get(id)) ?? null;
   }
 
+  async findByOwnerAndSlug(
+    ownerHandle: string,
+    slug: string,
+  ): Promise<RecipeRepositoryEntity | null> {
+    return (
+      (await this.db.recipeRepositories
+        .where("[ownerHandle+slug]")
+        .equals([ownerHandle, slug])
+        .first()) ?? null
+    );
+  }
+
   async findBySlug(slug: string): Promise<RecipeRepositoryEntity | null> {
     return (await this.db.recipeRepositories.where("slug").equals(slug).first()) ?? null;
   }
@@ -131,6 +143,7 @@ export class IndexedDbBackupRepository implements BackupRepository {
 
   async importAll(backup: SeasoningBOMAppBackup, options: ImportOptions): Promise<ImportResult> {
     validateBackup(backup);
+    const normalizedRepositories = backup.repositories.map(normalizeRecipeRepository);
 
     if (options.conflictStrategy === "overwrite") {
       await this.db.transaction(
@@ -140,17 +153,17 @@ export class IndexedDbBackupRepository implements BackupRepository {
         this.db.inventoryItems,
         this.db.settings,
         async () => {
-          await this.db.recipeRepositories.bulkPut(backup.repositories);
+          await this.db.recipeRepositories.bulkPut(normalizedRepositories);
           await this.db.recipeComponents.bulkPut(backup.components);
           await this.db.inventoryItems.bulkPut(backup.inventoryItems);
           await this.db.settings.put(backup.settings);
         },
       );
-      return importedCounts(backup, []);
+      return importedCounts({ ...backup, repositories: normalizedRepositories }, []);
     }
 
     const recipeIdMap = new Map<string, string>();
-    const duplicatedRepositories = backup.repositories.map((recipe) => {
+    const duplicatedRepositories = normalizedRepositories.map((recipe) => {
       const id = createId("recipe");
       recipeIdMap.set(recipe.id, id);
       return {
@@ -200,6 +213,14 @@ export class IndexedDbBackupRepository implements BackupRepository {
       ["Imported as duplicates with new IDs."],
     );
   }
+}
+
+function normalizeRecipeRepository(recipe: RecipeRepositoryEntity): RecipeRepositoryEntity {
+  return {
+    ...recipe,
+    ownerHandle: recipe.ownerHandle ?? "me",
+    visibility: recipe.visibility ?? "public",
+  };
 }
 
 export function createIndexedDbRepositories(db: SeasoningBomDb): RepositorySet {

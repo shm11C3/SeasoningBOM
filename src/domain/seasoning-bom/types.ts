@@ -1,20 +1,20 @@
-import type { AuditIssue, AuditSummary } from "../audit/types";
-import type { LifecycleStatus } from "../lifecycle/types";
+import type { RecipeAlert } from "../audit/types";
 import type { Allergen, DependencyType, IngredientDependencyType, Unit } from "../recipe/types";
 
 export type SeasoningBOM = {
   bomFormat: "SeasoningBOM";
   specVersion: "0.1.0";
   generatedAt: string;
-  recipe: SeasoningBOMRecipe;
+  repository: SeasoningBOMRepository;
   components: SeasoningBOMComponent[];
   audit: SeasoningBOMAudit;
 };
 
-export type SeasoningBOMRecipe = {
+export type SeasoningBOMRepository = {
+  owner: string;
   name: string;
   version: string;
-  servings: number;
+  visibility: "public" | "private" | "unlisted";
 };
 
 export type SeasoningBOMComponent = {
@@ -23,11 +23,6 @@ export type SeasoningBOMComponent = {
   unit: Unit;
   dependencyType: DependencyType;
   required: boolean;
-  lifecycle?: {
-    eolDate?: string;
-    useByDate?: string;
-    status: LifecycleStatus;
-  };
   allergens: Allergen[];
   dependencies: SeasoningBOMDependency[];
 };
@@ -40,6 +35,5 @@ export type SeasoningBOMDependency = {
 };
 
 export type SeasoningBOMAudit = {
-  summary: AuditSummary;
-  issues: AuditIssue[];
+  issues: RecipeAlert[];
 };

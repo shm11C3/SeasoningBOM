@@ -21,6 +21,24 @@ export class SeasoningBomDb extends Dexie {
       inventoryItems: "id, name, category, bestBeforeDate, useByDate",
       settings: "id",
     });
+
+    this.version(2)
+      .stores({
+        recipeRepositories:
+          "id, [ownerHandle+slug], ownerHandle, slug, visibility, name, updatedAt",
+        recipeComponents: "id, recipeId, ingredientName",
+        inventoryItems: "id, name, category, bestBeforeDate, useByDate",
+        settings: "id",
+      })
+      .upgrade((transaction) =>
+        transaction
+          .table<RecipeRepositoryEntity, string>("recipeRepositories")
+          .toCollection()
+          .modify((recipe) => {
+            recipe.ownerHandle ??= "me";
+            recipe.visibility ??= "public";
+          }),
+      );
   }
 }
 
