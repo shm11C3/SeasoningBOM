@@ -6,7 +6,7 @@ type ClerkJwtPayload = Awaited<ReturnType<typeof clerkVerifyToken>>;
 export type ClerkSession = {
   authProvider: "clerk";
   authSubject: string;
-  sessionId?: string;
+  sessionId: string;
   tokenSource: ClerkSessionTokenSource;
   claims: ClerkJwtPayload;
 };

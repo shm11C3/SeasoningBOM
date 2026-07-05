@@ -99,6 +99,7 @@ Production implementation:
 
 ```text
 src/repositories/cloudflare-d1/
+  D1UserProfileRepository.ts
   D1RecipeRepository.ts
   D1RecipeComponentRepository.ts
   D1InventoryRepository.ts
@@ -128,6 +129,8 @@ Production rules:
 - `recipe_repositories` has `UNIQUE(owner_user_id, slug)`.
 - public Repository reads use `owner + slug`.
 - `owner` in routes is the stable SeasoningBOM User Handle stored as `user_profiles.username`.
+- User Handles cannot use app route roots such as `api`, `backup`, `eol`, `inventory`, `new`, `repositories`, `security`, or `users`.
+- `user_profiles` is created through the profile bootstrap endpoint after a valid Clerk session.
 - private Repository reads require the owner.
 - unlisted Repository reads require the exact URL but are not listed publicly.
 - `inventory_items` are always scoped to the authenticated user.

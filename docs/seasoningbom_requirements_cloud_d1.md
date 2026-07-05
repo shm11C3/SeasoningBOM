@@ -565,7 +565,7 @@ CREATE TABLE user_profiles (
 );
 ```
 
-`username` は URL に使う SeasoningBOM 内の stable User Handle とする。P0 では Clerk/provider profile の表示名・username・email local-part などから候補を作るか、ユーザー入力で予約する。provider 側の表示名・username・email 変更に自動追従しない。認証上の安定キーは `auth_provider = "clerk"` と `auth_subject = Clerk user id` とする。
+`username` は URL に使う SeasoningBOM 内の stable User Handle とする。P0 では Clerk/provider profile の表示名・username・email local-part などから候補を作るか、ユーザー入力で予約する。provider 側の表示名・username・email 変更に自動追従しない。`api` / `backup` / `eol` / `inventory` / `new` / `repositories` / `security` / `users` などアプリの route root は User Handle として予約できない。認証上の安定キーは `auth_provider = "clerk"` と `auth_subject = Clerk user id` とする。
 
 Clerk が sign-in、sessions、account linking を所有する。SeasoningBOM は password、password reset、SMS login を持たず、アプリ側の所有権・認可・URL identity だけを `user_profiles` に保存する。
 

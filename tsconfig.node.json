@@ -15,6 +15,7 @@
     "vite.config.ts",
     "playwright.config.ts",
     "tests/e2e/**/*.ts",
-    "tests/migrations/**/*.test.ts"
+    "tests/migrations/**/*.test.ts",
+    "tests/repositories/**/*.test.ts"
   ]
 }

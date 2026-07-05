@@ -1,9 +1,14 @@
 export type ApiErrorCode =
   | "auth_misconfigured"
+  | "internal_error"
   | "method_not_allowed"
   | "not_authenticated"
   | "not_found"
-  | "not_implemented";
+  | "not_implemented"
+  | "profile_already_exists"
+  | "profile_not_initialized"
+  | "username_reserved"
+  | "validation_failed";
 
 export type ApiErrorBody = {
   error: {
@@ -46,6 +51,29 @@ export function notImplemented(message: string): Response {
 
 export function authMisconfigured(): Response {
   return errorResponse(500, "auth_misconfigured", "Authentication is not configured.");
+}
+
+export function badRequest(message: string): Response {
+  return errorResponse(400, "validation_failed", message);
+}
+
+export function conflict(
+  code: "profile_already_exists" | "username_reserved",
+  message: string,
+): Response {
+  return errorResponse(409, code, message);
+}
+
+export function profileNotInitialized(): Response {
+  return errorResponse(
+    404,
+    "profile_not_initialized",
+    "Create a profile before accessing this endpoint.",
+  );
+}
+
+export function serverError(message = "Unexpected server error."): Response {
+  return errorResponse(500, "internal_error", message);
 }
 
 function errorResponse(

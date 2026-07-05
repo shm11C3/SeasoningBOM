@@ -18,6 +18,7 @@ Use `user_profiles.username` as a SeasoningBOM User Handle:
 - normalized before storage and URL use
 - globally unique inside SeasoningBOM
 - used as `owner` in `/:owner/:repo` and as `username` in `/users/:username`
+- cannot use route roots reserved by the app, including `api`, `backup`, `eol`, `inventory`, `new`, `repositories`, `security`, and `users`
 - not automatically changed in P0 when provider-side username, display name, or email changes
 
 Handle rename flows and old-URL redirects are deferred to P1 or later.
