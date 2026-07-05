@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { type AuditIssue, type AuditSeverity, runNomAudit } from "../../domain";
+import { type AuditSeverity, type InventoryAuditIssue, runNomAudit } from "../../domain";
 import { EmptyState } from "../../ui/components/EmptyState";
 import { SeverityLabel } from "../../ui/components/Labels";
 import { AppLink } from "../../ui/components/Link";
@@ -7,8 +7,9 @@ import { ShieldIcon } from "../../ui/components/TemporaryIcons";
 import { groupComponentsByRecipeId } from "../format";
 import { useLiveData } from "../useLiveData";
 
-type CrossRecipeIssue = AuditIssue & {
+type CrossRecipeIssue = InventoryAuditIssue & {
   recipeName: string;
+  recipeOwnerHandle: string;
   recipeSlug: string;
 };
 
@@ -26,9 +27,10 @@ export function SecurityPage() {
           now,
           settings,
         });
-        return audit.issues.map((issue) => ({
+        return audit.inventoryAudit.issues.map((issue) => ({
           ...issue,
           recipeName: recipe.name,
+          recipeOwnerHandle: recipe.ownerHandle,
           recipeSlug: recipe.slug,
         }));
       }),
@@ -47,7 +49,7 @@ export function SecurityPage() {
       <div className="page-heading">
         <div>
           <h1>Security alerts</h1>
-          <p>Cross-recipe `nom audit` results.</p>
+          <p>Your cross-recipe inventory audit results.</p>
         </div>
       </div>
 
@@ -82,7 +84,7 @@ export function SecurityPage() {
                     <strong>{issue.message}</strong>
                     {issue.recommendation ? <p className="muted">{issue.recommendation}</p> : null}
                   </div>
-                  <AppLink to={`/repositories/${issue.recipeSlug}`}>
+                  <AppLink to={`/${issue.recipeOwnerHandle}/${issue.recipeSlug}`}>
                     <ShieldIcon /> {issue.recipeName}
                   </AppLink>
                 </div>

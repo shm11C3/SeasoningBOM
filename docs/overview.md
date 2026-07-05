@@ -1,14 +1,14 @@
 # SeasoningBOM Overview
 
-SeasoningBOM は、料理レシピをソフトウェアリポジトリのように扱う、ローカルファーストなジョーク系レシピ管理アプリです。
+SeasoningBOM は、料理レシピをソフトウェアリポジトリのように扱う、GitHub パロディのレシピ共有サービスです。
 
 料理を **Repository**、材料を **Dependencies**、賞味期限を **EOL**、監査を **`nom audit`**、不足材料の買い物リスト化を **`nom install`** として表現します。
 
-実用面では、冷蔵庫内の食材管理、期限が近い食材を優先するレシピ提案、アレルゲンや期限切れ食材の検出を行います。ネタ面では、GitHub / SBOM / サプライチェーン監査の語彙を料理に持ち込み、食品ロス対策をソフトウェア開発者に刺さる形で表現します。
+実用面では、公開・非公開レシピ共有、冷蔵庫内の食材管理、期限が近い食材を優先するレシピ提案、アレルゲンや期限切れ食材の検出を行います。ネタ面では、GitHub / SBOM / サプライチェーン監査の語彙を料理に持ち込み、食品ロス対策をソフトウェア開発者に刺さる形で表現します。
 
 ## Product Statement
 
-> SeasoningBOM は、料理を GitHub Repository のように表現し、材料を依存パッケージ、賞味期限を EOL、監査を `nom audit` として扱う、ローカルファーストなネタ系レシピ管理アプリです。
+> SeasoningBOM は、料理を GitHub Repository のように表現し、材料を依存パッケージ、賞味期限を EOL、監査を `nom audit` として扱う、エンジニア向けのレシピ共有サービスです。
 
 ## Core Joke
 
@@ -28,23 +28,24 @@ SeasoningBOM の中心にあるジョークは、**料理もまた依存関係�
 ### MVP Goals
 
 1. レシピを GitHub Repository 風 UI で閲覧・編集できる。
-2. 冷蔵庫インベントリを管理できる。
-3. 材料の賞味期限・消費期限から lifecycle status を判定できる。
-4. `nom audit` で EOL、unsupported、hazardous、アレルゲン、不足材料を検出できる。
-5. レシピから SeasoningBOM JSON を生成・ダウンロードできる。
-6. 全データをブラウザ内 IndexedDB に保存できる。
-7. 全データを JSON としてバックアップ / リストアできる。
+2. Repository を stable User Handle の `owner + slug` で識別し、public / private / unlisted の visibility を扱える。
+3. GitHub OAuth でログインできる。
+4. 公開可能な Recipe Alert と本人限定の Inventory Audit を分けて表示できる。
+5. ユーザーごとの非公開 Inventory を管理できる。
+6. Star、Fork、Contribution graph によりレシピ共有サービスとして成立する。
+7. レシピから private inventory を含まない SeasoningBOM JSON を生成・ダウンロードできる。
+8. Cloudflare Pages / Workers / D1 上で動作する。
 
 ### Non-Goals for MVP
 
-- アカウント機能
-- クラウド同期
 - 本物の SPDX / CycloneDX 完全互換
 - 栄養素データベース連携
 - レシート OCR
 - バーコード読み取り
 - AI レシピ生成
 - モバイル SQLite 実装
+- Pull Request 風のレシピ改善フロー
+- Organizations / Teams
 
 ## Design Principles
 
@@ -56,13 +57,14 @@ SeasoningBOM の中心にあるジョークは、**料理もまた依存関係�
 - hazardous 食材は利用不可扱いにする。
 - 期限切れ食材の利用を軽く扱う文言にしない。
 
-### 2. Local-first and inspectable
+### 2. Shareable, private where it matters
 
-MVP はサーバー DB やアカウントを持ちません。
+MVP は hosted sharing service ですが、個人の Inventory は公開 Repository と混ぜません。
 
-- データはブラウザ内 IndexedDB に保存する。
-- バックアップ / リストアは JSON で行う。
-- 将来のモバイル SQLite は Repository 層で差し替え可能にする。
+- Repository content は visibility に従って共有する。
+- Inventory は本人のみ閲覧できる。
+- Inventory Audit details は public API / public SeasoningBOM に含めない。
+- 既存 IndexedDB 実装は local prototype / development adapter として扱う。
 
 ### 3. Domain logic before UI magic
 
@@ -74,9 +76,9 @@ EOL 判定、`nom audit`、SeasoningBOM 生成は、UI に依存しない純粋�
 - IndexedDB / SQLite に依存しない。
 - UI が変わっても監査結果が安定する。
 
-### 4. GitHub-like, not GitHub-dependent
+### 4. GitHub-like, GitHub-authenticated
 
-UI は GitHub 風ですが、GitHub と連携するアプリではありません。
+UI は GitHub 風で、ログインには GitHub OAuth を使います。ただし、GitHub repository そのものを読み書きするサービスではありません。
 
 - `@primer/react` を採用する。
 - アイコンは最終方針が決まるまで、内部の仮 SVG アイコンを使う。

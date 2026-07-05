@@ -52,14 +52,14 @@ describe("DashboardPage repository cards", () => {
     const curryCard = await screen.findByRole("link", { name: "Open Curry Rice" });
 
     expect(curryCard).toHaveClass("repo-card", "repo-card-link");
-    expect(curryCard).toHaveAttribute("href", "/repositories/curry-rice");
+    expect(curryCard).toHaveAttribute("href", "/me/curry-rice");
     expect(curryCard.querySelector("a")).toBeNull();
     expect(curryCard.querySelector(".repo-name")?.tagName).toBe("SPAN");
-    expect(within(curryCard).getByText("Curry Rice")).toHaveClass("repo-name");
+    expect(within(curryCard).getByText("me/curry-rice")).toHaveClass("repo-name");
 
     await user.click(curryCard);
 
-    await waitFor(() => expect(window.location.pathname).toBe("/repositories/curry-rice"));
+    await waitFor(() => expect(window.location.pathname).toBe("/me/curry-rice"));
   });
 
   it("renders repositories even when component data has not arrived for that recipe", () => {

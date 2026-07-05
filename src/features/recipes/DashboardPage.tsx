@@ -31,7 +31,10 @@ export function DashboardPage() {
       ),
     [componentsByRecipeId, inventoryItems, now, recipes, settings],
   );
-  const issueCount = audits.reduce((total, audit) => total + audit.summary.totalIssues, 0);
+  const issueCount = audits.reduce(
+    (total, audit) => total + audit.recipeAlerts.length + audit.inventoryAudit.summary.totalIssues,
+    0,
+  );
 
   return (
     <>
@@ -40,7 +43,7 @@ export function DashboardPage() {
           <h1>Recipe repositories</h1>
           <p>Local repositories, installed ingredients, and conservative food-safety checks.</p>
         </div>
-        <Button type="button" onClick={() => navigate("/repositories/new/edit")}>
+        <Button type="button" onClick={() => navigate("/new")}>
           <PlusIcon /> New recipe
         </Button>
       </div>
@@ -76,15 +79,17 @@ export function DashboardPage() {
                   aria-label={`Open ${recipe.name}`}
                   className="repo-card repo-card-link"
                   key={recipe.id}
-                  to={`/repositories/${recipe.slug}`}
+                  to={`/${recipe.ownerHandle}/${recipe.slug}`}
                 >
                   <div className="repo-title">
                     <RepoIcon />
-                    <span className="repo-name">{recipe.name}</span>
+                    <span className="repo-name">
+                      {recipe.ownerHandle}/{recipe.slug}
+                    </span>
                   </div>
                   <p className="muted">{recipe.description}</p>
                   <div className="label-row">
-                    <Label>Public</Label>
+                    <Label>{recipe.visibility}</Label>
                     <Label variant="accent">v{recipe.version}</Label>
                     {recipe.tags.map((tag) => (
                       <Label key={tag} variant="secondary">
@@ -101,7 +106,10 @@ export function DashboardPage() {
                     </span>
                     <span>{fakeForks(recipe)} forks</span>
                     <span>
-                      <AlertIcon /> {audit?.summary.totalIssues ?? 0} alerts
+                      <AlertIcon />{" "}
+                      {(audit?.recipeAlerts.length ?? 0) +
+                        (audit?.inventoryAudit.summary.totalIssues ?? 0)}{" "}
+                      alerts
                     </span>
                   </div>
                 </AppLink>

@@ -87,7 +87,7 @@ describe("audit pages", () => {
     expect(screen.getByText("chicken is unsupported and excluded from recommendations"));
     expect(screen.getAllByRole("link", { name: "Curry Rice" })[0]).toHaveAttribute(
       "href",
-      "/repositories/curry-rice",
+      "/me/curry-rice",
     );
   });
 

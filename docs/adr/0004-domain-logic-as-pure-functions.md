@@ -10,12 +10,13 @@ SeasoningBOM contains several domain rules that must be correct and testable:
 
 - EOL lifecycle status
 - unsupported / hazardous food safety behavior
-- `nom audit`
+- Recipe Alert generation
+- Inventory Audit generation
 - `nom install`
 - SeasoningBOM JSON generation
 - recipe recommendations
 
-These rules should not depend on React, IndexedDB, or the current system clock.
+These rules should not depend on React, IndexedDB, Cloudflare bindings, repositories, or the current system clock.
 
 ## Decision
 
@@ -24,7 +25,8 @@ Implement core domain logic as pure functions.
 Examples:
 
 - `calculateLifecycleStatus(input)`
-- `runNomAudit(input)`
+- `generateRecipeAlerts(input)`
+- `runInventoryAudit(input)`
 - `generateSeasoningBOM(input)`
 - `generateShoppingList(input)`
 - `recommendRecipes(input)`
@@ -49,4 +51,3 @@ Mitigations:
 
 - Provide small app-level helper hooks/services to gather data and call pure functions.
 - Keep function input types explicit.
-

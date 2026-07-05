@@ -8,6 +8,7 @@ import type {
 export type RecipeRepository = {
   findAll(): Promise<RecipeRepositoryEntity[]>;
   findById(id: string): Promise<RecipeRepositoryEntity | null>;
+  findByOwnerAndSlug(ownerHandle: string, slug: string): Promise<RecipeRepositoryEntity | null>;
   findBySlug(slug: string): Promise<RecipeRepositoryEntity | null>;
   save(recipe: RecipeRepositoryEntity): Promise<void>;
   delete(id: string): Promise<void>;

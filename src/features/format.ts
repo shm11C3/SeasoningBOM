@@ -1,4 +1,4 @@
-import type { AuditIssue, AuditSeverity, RecipeComponent, RecipeRepositoryEntity } from "../domain";
+import type { AuditSeverity, RecipeComponent, RecipeRepositoryEntity } from "../domain";
 
 export function formatQuantity(quantity: number, unit: string): string {
   return unit === "as_needed" ? "as needed" : `${quantity}${unit}`;
@@ -14,8 +14,10 @@ export function groupComponentsByRecipeId(
   }, {});
 }
 
-export function groupIssuesBySeverity(issues: AuditIssue[]): Record<AuditSeverity, AuditIssue[]> {
-  return issues.reduce<Record<AuditSeverity, AuditIssue[]>>(
+export function groupIssuesBySeverity<T extends { severity: AuditSeverity }>(
+  issues: T[],
+): Record<AuditSeverity, T[]> {
+  return issues.reduce<Record<AuditSeverity, T[]>>(
     (groups, issue) => {
       groups[issue.severity].push(issue);
       return groups;

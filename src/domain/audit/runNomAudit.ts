@@ -6,7 +6,18 @@ import {
 } from "../lifecycle/calculateLifecycleStatus";
 import type { LifecycleStatus } from "../lifecycle/types";
 import type { RecipeComponent } from "../recipe/types";
-import type { AuditIssue, AuditResult, AuditSeverity, NomAuditInput } from "./types";
+import type {
+  AuditIssue,
+  AuditResult,
+  AuditSeverity,
+  InventoryAuditInput,
+  InventoryAuditIssue,
+  InventoryAuditResult,
+  NomAuditInput,
+  NomAuditResult,
+  RecipeAlert,
+  RecipeAlertInput,
+} from "./types";
 
 const severityWeight: Record<AuditSeverity, number> = {
   critical: 4,
@@ -21,9 +32,95 @@ export function runNomAudit({
   inventoryItems,
   now,
   settings,
-}: NomAuditInput): AuditResult {
+}: NomAuditInput): NomAuditResult {
+  const recipeAlerts = generateRecipeAlerts({ recipe, components });
+  const inventoryAudit = runInventoryAudit({ recipe, components, inventoryItems, now, settings });
+  return {
+    recipeId: recipe.id,
+    generatedAt: now.toISOString(),
+    recipeAlerts,
+    inventoryAudit,
+  };
+}
+
+export function toCombinedAuditResult(audit: NomAuditResult): AuditResult {
+  const issues = [...audit.recipeAlerts, ...audit.inventoryAudit.issues].toSorted(
+    (left, right) => severityWeight[right.severity] - severityWeight[left.severity],
+  );
+  return {
+    recipeId: audit.recipeId,
+    generatedAt: audit.generatedAt,
+    summary: summarizeIssues(issues),
+    issues,
+  };
+}
+
+export function generateRecipeAlerts({ recipe, components }: RecipeAlertInput): RecipeAlert[] {
+  const alerts: RecipeAlert[] = [];
+
+  for (const component of components) {
+    if (component.allergens.length > 0) {
+      alerts.push(
+        withRecipeAlertId(
+          {
+            severity: "medium",
+            category: "allergen",
+            componentName: component.ingredientName,
+            message: `${component.ingredientName} declares allergen dependency: ${component.allergens.join(", ")}`,
+            recommendation: "Check dietary constraints before cooking.",
+          },
+          alerts.length,
+          recipe.id,
+        ),
+      );
+    }
+
+    for (const dependency of component.transitiveDependencies) {
+      alerts.push(
+        withRecipeAlertId(
+          {
+            severity: dependency.allergens.length > 0 ? "medium" : "low",
+            category: "transitive-dependency",
+            componentName: component.ingredientName,
+            message: `${component.ingredientName} contains transitive dependency: ${dependency.name}`,
+            recommendation: dependency.allergens.length
+              ? `Contains allergen dependency: ${dependency.allergens.join(", ")}`
+              : dependency.notes,
+          },
+          alerts.length,
+          recipe.id,
+        ),
+      );
+    }
+  }
+
+  if (recipe.license && /secret|mother|grandma/i.test(recipe.license)) {
+    alerts.push(
+      withRecipeAlertId(
+        {
+          severity: "low",
+          category: "license",
+          message: `${recipe.license} is recipe metadata, not an OSS license`,
+          recommendation: "Treat joke recipe licenses as notes only.",
+        },
+        alerts.length,
+        recipe.id,
+      ),
+    );
+  }
+
+  return sortIssues(alerts);
+}
+
+export function runInventoryAudit({
+  recipe,
+  components,
+  inventoryItems,
+  now,
+  settings,
+}: InventoryAuditInput): InventoryAuditResult {
   const today = toLocalDateKey(now);
-  const issues: AuditIssue[] = [];
+  const issues: InventoryAuditIssue[] = [];
 
   for (const component of components) {
     const matchingItems = inventoryItems.filter((item) =>
@@ -70,63 +167,12 @@ export function runNomAudit({
     } else {
       const quantityIssue = createQuantityIssue(component, usableMatchingItems);
       if (quantityIssue) {
-        issues.push(withId(quantityIssue, issues.length, recipe.id));
+        issues.push(withInventoryIssueId(quantityIssue, issues.length, recipe.id));
       }
     }
-
-    if (component.allergens.length > 0) {
-      issues.push(
-        withId(
-          {
-            severity: "medium",
-            category: "allergen",
-            componentName: component.ingredientName,
-            message: `${component.ingredientName} declares allergen dependency: ${component.allergens.join(", ")}`,
-            recommendation: "Check dietary constraints before cooking.",
-          },
-          issues.length,
-          recipe.id,
-        ),
-      );
-    }
-
-    for (const dependency of component.transitiveDependencies) {
-      issues.push(
-        withId(
-          {
-            severity: dependency.allergens.length > 0 ? "medium" : "low",
-            category: "transitive-dependency",
-            componentName: component.ingredientName,
-            message: `${component.ingredientName} contains transitive dependency: ${dependency.name}`,
-            recommendation: dependency.allergens.length
-              ? `Contains allergen dependency: ${dependency.allergens.join(", ")}`
-              : dependency.notes,
-          },
-          issues.length,
-          recipe.id,
-        ),
-      );
-    }
   }
 
-  if (recipe.license && /secret|mother|grandma/i.test(recipe.license)) {
-    issues.push(
-      withId(
-        {
-          severity: "low",
-          category: "license",
-          message: `${recipe.license} is recipe metadata, not an OSS license`,
-          recommendation: "Treat joke recipe licenses as notes only.",
-        },
-        issues.length,
-        recipe.id,
-      ),
-    );
-  }
-
-  const sortedIssues = issues.toSorted(
-    (left, right) => severityWeight[right.severity] - severityWeight[left.severity],
-  );
+  const sortedIssues = sortIssues(issues);
 
   return {
     recipeId: recipe.id,
@@ -136,7 +182,7 @@ export function runNomAudit({
   };
 }
 
-export function summarizeIssues(issues: AuditIssue[]): AuditResult["summary"] {
+export function summarizeIssues(issues: { severity: AuditSeverity }[]): AuditResult["summary"] {
   return issues.reduce(
     (summary, issue) => {
       summary.totalIssues += 1;
@@ -152,7 +198,7 @@ function createLifecycleIssue(
   inventoryItem: InventoryItem,
   status: LifecycleStatus,
   today: string,
-): Omit<AuditIssue, "id"> | null {
+): Omit<InventoryAuditIssue, "id"> | null {
   switch (status) {
     case "deprecated": {
       const days = daysUntilDateKey(inventoryItem.bestBeforeDate, today);
@@ -203,7 +249,7 @@ function createLifecycleIssue(
 function createQuantityIssue(
   component: RecipeComponent,
   matchingItems: { quantity: number; unit: string }[],
-): Omit<AuditIssue, "id"> | null {
+): Omit<InventoryAuditIssue, "id"> | null {
   if (component.unit === "as_needed") {
     return null;
   }
@@ -219,7 +265,7 @@ function createQuantityIssue(
   if (sameUnitQuantity === 0) {
     return {
       severity: "low",
-      category: "missing",
+      category: "quantity",
       componentName: component.ingredientName,
       message: `${component.ingredientName} exists with a different unit, so quantity cannot be compared`,
       recommendation: "Check the package manually or add the item with a matching unit.",
@@ -228,21 +274,58 @@ function createQuantityIssue(
 
   return {
     severity: component.required ? "high" : "low",
-    category: "missing",
+    category: "quantity",
     componentName: component.ingredientName,
     message: `${component.ingredientName}@${component.quantity}${component.unit} is insufficient`,
     recommendation: `${component.quantity - sameUnitQuantity}${component.unit} must be added with nom install.`,
   };
 }
 
-function withId(issue: Omit<AuditIssue, "id">, index: number, recipeId: string): AuditIssue {
+function sortIssues<T extends { severity: AuditSeverity }>(issues: T[]): T[] {
+  return issues.toSorted(
+    (left, right) => severityWeight[right.severity] - severityWeight[left.severity],
+  );
+}
+
+function withRecipeAlertId(
+  issue: Omit<RecipeAlert, "id">,
+  index: number,
+  recipeId: string,
+): RecipeAlert {
+  return {
+    id: issueId(recipeId, issue, index),
+    ...issue,
+  };
+}
+
+function withInventoryIssueId(
+  issue: Omit<InventoryAuditIssue, "id">,
+  index: number,
+  recipeId: string,
+): InventoryAuditIssue {
+  return {
+    id: issueId(recipeId, issue, index),
+    ...issue,
+  };
+}
+
+function withId(
+  issue: Omit<InventoryAuditIssue, "id">,
+  index: number,
+  recipeId: string,
+): InventoryAuditIssue {
+  return withInventoryIssueId(issue, index, recipeId);
+}
+
+function issueId(
+  recipeId: string,
+  issue: Pick<AuditIssue, "category" | "severity" | "componentName">,
+  index: number,
+): string {
   const parts = [recipeId, issue.category, issue.severity, issue.componentName, index]
     .filter(Boolean)
     .join("-");
-  return {
-    id: parts.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
-    ...issue,
-  };
+  return parts.toLowerCase().replace(/[^a-z0-9]+/g, "-");
 }
 
 function sameIngredient(left: string, right: string): boolean {

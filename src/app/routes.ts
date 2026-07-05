@@ -2,12 +2,13 @@ import { useEffect, useMemo, useState } from "react";
 
 export type AppRoute =
   | { name: "dashboard" }
-  | { name: "repository"; slug: string }
-  | { name: "repository-edit"; slug: string }
+  | { name: "repository"; ownerHandle: string; slug: string }
+  | { name: "repository-edit"; ownerHandle: string; slug: string }
   | { name: "inventory" }
   | { name: "security" }
   | { name: "eol" }
   | { name: "backup" }
+  | { name: "profile"; username: string }
   | { name: "not-found"; path: string };
 
 export function useRoute(): AppRoute {
@@ -50,12 +51,47 @@ function parseRoute(path: string): AppRoute {
 
   const repositoryEditMatch = path.match(/^\/repositories\/([^/]+)\/edit$/);
   if (repositoryEditMatch) {
-    return { name: "repository-edit", slug: decodeURIComponent(repositoryEditMatch[1]) };
+    return {
+      name: "repository-edit",
+      ownerHandle: "me",
+      slug: decodeURIComponent(repositoryEditMatch[1]),
+    };
   }
 
   const repositoryMatch = path.match(/^\/repositories\/([^/]+)$/);
   if (repositoryMatch) {
-    return { name: "repository", slug: decodeURIComponent(repositoryMatch[1]) };
+    return {
+      name: "repository",
+      ownerHandle: "me",
+      slug: decodeURIComponent(repositoryMatch[1]),
+    };
+  }
+
+  if (path === "/new") {
+    return { name: "repository-edit", ownerHandle: "me", slug: "new" };
+  }
+
+  const profileMatch = path.match(/^\/users\/([^/]+)$/);
+  if (profileMatch) {
+    return { name: "profile", username: decodeURIComponent(profileMatch[1]) };
+  }
+
+  const ownerRepositoryEditMatch = path.match(/^\/([^/]+)\/([^/]+)\/edit$/);
+  if (ownerRepositoryEditMatch) {
+    return {
+      name: "repository-edit",
+      ownerHandle: decodeURIComponent(ownerRepositoryEditMatch[1]),
+      slug: decodeURIComponent(ownerRepositoryEditMatch[2]),
+    };
+  }
+
+  const ownerRepositoryMatch = path.match(/^\/([^/]+)\/([^/]+)$/);
+  if (ownerRepositoryMatch) {
+    return {
+      name: "repository",
+      ownerHandle: decodeURIComponent(ownerRepositoryMatch[1]),
+      slug: decodeURIComponent(ownerRepositoryMatch[2]),
+    };
   }
 
   return { name: "not-found", path };

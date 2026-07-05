@@ -6,10 +6,12 @@ import {
   type Allergen,
   allergens,
   type DependencyType,
+  defaultOwnerHandle,
   dependencyTypes,
   type IngredientDependency,
   type RecipeComponent,
   type RecipeRepositoryEntity,
+  repositoryVisibilities,
   type Unit,
   units,
 } from "../../domain";
@@ -22,6 +24,7 @@ type RecipeDraft = {
   name: string;
   slug: string;
   description: string;
+  visibility: RecipeRepositoryEntity["visibility"];
   version: string;
   servings: string;
   tags: string;
@@ -47,6 +50,7 @@ const emptyRecipeDraft: RecipeDraft = {
   name: "",
   slug: "",
   description: "",
+  visibility: "public",
   version: "0.1.0",
   servings: "2",
   tags: "",
@@ -56,10 +60,16 @@ const emptyRecipeDraft: RecipeDraft = {
     "# New Recipe\n\n## Build\n\n1. Checkout ingredients.\n2. Install dependencies.\n3. Deploy to table.",
 };
 
-export function RecipeEditorPage({ slug }: { slug: string }) {
+export function RecipeEditorPage({
+  ownerHandle = defaultOwnerHandle,
+  slug,
+}: {
+  ownerHandle?: string;
+  slug: string;
+}) {
   const { repositories, recipes, components } = useLiveData();
   const isNew = slug === "new";
-  const recipe = recipes.find((item) => item.slug === slug);
+  const recipe = recipes.find((item) => item.ownerHandle === ownerHandle && item.slug === slug);
   const existingComponents = useMemo(
     () => (recipe ? components.filter((component) => component.recipeId === recipe.id) : []),
     [components, recipe],
@@ -85,6 +95,7 @@ export function RecipeEditorPage({ slug }: { slug: string }) {
       name: recipe.name,
       slug: recipe.slug,
       description: recipe.description ?? "",
+      visibility: recipe.visibility,
       version: recipe.version,
       servings: String(recipe.servings),
       tags: recipe.tags.join(", "),
@@ -114,9 +125,11 @@ export function RecipeEditorPage({ slug }: { slug: string }) {
     const recipeSlug = slugify(recipeDraft.slug || recipeDraft.name);
     const savedRecipe: RecipeRepositoryEntity = {
       id: recipeId,
+      ownerHandle,
       name: recipeDraft.name.trim(),
       slug: recipeSlug,
       description: emptyToUndefined(recipeDraft.description),
+      visibility: recipeDraft.visibility,
       version: recipeDraft.version.trim() || "0.1.0",
       servings: Number(recipeDraft.servings) || 1,
       tags: splitList(recipeDraft.tags),
@@ -132,10 +145,10 @@ export function RecipeEditorPage({ slug }: { slug: string }) {
 
     await repositories.recipes.save(savedRecipe);
     await repositories.components.saveMany(recipeId, savedComponents);
-    navigate(`/repositories/${savedRecipe.slug}`);
+    navigate(`/${savedRecipe.ownerHandle}/${savedRecipe.slug}`);
   }
 
-  function updateRecipeDraft(field: keyof RecipeDraft, value: string) {
+  function updateRecipeDraft(field: keyof RecipeDraft, value: RecipeDraft[typeof field]) {
     setRecipeDraft((current) => ({ ...current, [field]: value }));
   }
 
@@ -155,7 +168,7 @@ export function RecipeEditorPage({ slug }: { slug: string }) {
         <div className="action-row">
           <Button
             type="button"
-            onClick={() => navigate(isNew ? "/" : `/repositories/${recipeDraft.slug}`)}
+            onClick={() => navigate(isNew ? "/" : `/${ownerHandle}/${recipeDraft.slug}`)}
           >
             Cancel
           </Button>
@@ -206,6 +219,23 @@ export function RecipeEditorPage({ slug }: { slug: string }) {
               value={recipeDraft.description}
               onChange={(event) => updateRecipeDraft("description", event.target.value)}
             />
+          </Field>
+          <Field className="span-3" label="Visibility">
+            <select
+              value={recipeDraft.visibility}
+              onChange={(event) =>
+                updateRecipeDraft(
+                  "visibility",
+                  event.target.value as RecipeRepositoryEntity["visibility"],
+                )
+              }
+            >
+              {repositoryVisibilities.map((visibility) => (
+                <option key={visibility} value={visibility}>
+                  {visibility}
+                </option>
+              ))}
+            </select>
           </Field>
           <Field className="span-3" label="Maintainer">
             <input

@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Superseded by ADR 0005 for product MVP persistence and deployment. React + Vite remains accepted for the frontend.
 
 ## Context
 
@@ -47,4 +47,3 @@ Mitigations:
 - Keep domain logic framework-independent.
 - Keep persistence behind Repository contracts.
 - Avoid browser-only assumptions in `domain/`.
-

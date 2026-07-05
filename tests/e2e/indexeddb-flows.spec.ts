@@ -8,9 +8,11 @@ const backupFixture = {
   repositories: [
     {
       id: "recipe-backup-soup",
+      ownerHandle: "me",
       name: "Backup Soup",
       slug: "backup-soup",
       description: "Imported through Backup JSON.",
+      visibility: "public",
       version: "1.0.0",
       servings: 2,
       tags: ["e2e", "backup"],
@@ -94,7 +96,7 @@ test("recipe repositories and dependencies are stored in IndexedDB and survive r
 }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "New recipe" }).click();
-  await expect(page).toHaveURL("/repositories/new/edit");
+  await expect(page).toHaveURL("/new");
 
   await page.getByLabel("Name").fill("E2E Soup");
   await page.getByLabel("Slug").fill("e2e-soup");
@@ -105,7 +107,7 @@ test("recipe repositories and dependencies are stored in IndexedDB and survive r
   await page.getByLabel("Unit").selectOption("go");
   await page.getByRole("button", { name: "Save changes" }).click();
 
-  await expect(page).toHaveURL("/repositories/e2e-soup");
+  await expect(page).toHaveURL("/me/e2e-soup");
   await expect(page.locator(".repo-path")).toContainText("e2e-soup");
   await expect(page.locator("li").filter({ hasText: "rice@1go" }).first()).toBeVisible();
 
@@ -113,7 +115,7 @@ test("recipe repositories and dependencies are stored in IndexedDB and survive r
   await expect(page.locator(".repo-path")).toContainText("e2e-soup");
   await expect(page.locator("li").filter({ hasText: "rice@1go" }).first()).toBeVisible();
 
-  await page.getByRole("link", { name: "me" }).click();
+  await page.getByRole("link", { name: "Repositories" }).click();
   const soupCard = page.getByRole("link", { name: "Open E2E Soup" });
   await expect(soupCard).toContainText("Saved through the recipe editor.");
   await expect(soupCard).toContainText("1 dependencies");

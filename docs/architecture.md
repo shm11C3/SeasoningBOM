@@ -2,7 +2,7 @@
 
 SeasoningBOM は、React + Vite + TypeScript による Web 先行アプリとして設計します。
 
-MVP では Web のみを実装し、データ永続化には IndexedDB を使用します。将来のモバイル版では SQLite を利用する想定ですが、アプリケーション層からは Repository インターフェース越しにアクセスし、永続化方式の差分を隠蔽します。
+Cloud D1 MVP では Cloudflare Pages でフロントエンドを配信し、Cloudflare Workers API と D1 で hosted recipe sharing service を実装します。既存の IndexedDB 実装は local prototype / development adapter として残し、アプリケーション層からは Repository contract または API client 越しにアクセスします。
 
 ## Technology Decisions
 
@@ -13,9 +13,13 @@ MVP では Web のみを実装し、データ永続化には IndexedDB を使用
 | Build | Vite |
 | UI library | `@primer/react` |
 | Icons | Temporary internal SVG placeholders |
-| Web storage | IndexedDB |
-| IndexedDB wrapper | Dexie.js |
-| React data binding | `dexie-react-hooks` / `useLiveQuery` |
+| Hosting | Cloudflare Pages |
+| API | Cloudflare Workers |
+| Production DB | Cloudflare D1 |
+| Auth | GitHub OAuth |
+| Local prototype storage | IndexedDB |
+| Local prototype DB wrapper | Dexie.js |
+| Local prototype React binding | `dexie-react-hooks` / `useLiveQuery` |
 | Package manager | pnpm |
 | Lint / Format | Biome |
 | Test | Vitest + Testing Library |
@@ -46,12 +50,17 @@ src/
 
   repositories/
     contracts/
+    cloudflare-d1/
     indexeddb/
     memory/
 
   db/
     schema/
     migrations/
+
+  workers/
+    api/
+    auth/
 
   ui/
     github/
@@ -72,7 +81,8 @@ UI や DB に依存しないドメインロジックを置きます。
 Examples:
 
 - lifecycle status 判定
-- `nom audit`
+- Recipe Alert generation
+- Inventory Audit generation
 - SeasoningBOM 生成
 - recipe recommendation
 - dependency graph traversal
@@ -98,12 +108,29 @@ Examples:
 
 Rules:
 
-- UI は具体的な IndexedDB 実装ではなく contract に依存する。
-- 将来の SQLite 実装と同じ contract を使えるようにする。
+- UI は具体的な D1 / IndexedDB 実装ではなく contract または API client に依存する。
+- production D1 adapter と local IndexedDB adapter で同じドメイン境界を保つ。
+
+### `repositories/cloudflare-d1/` / `workers/`
+
+Cloudflare Workers API と D1 向けの production 実装を置きます。
+
+Examples:
+
+- `D1RecipeRepository`
+- `D1InventoryRepository`
+- `D1ContributionRepository`
+- GitHub OAuth callback handler
+
+Rules:
+
+- D1 binding や SQL は Workers / repository implementation に閉じ込める。
+- private repository / private inventory の authorization を API layer で必ず確認する。
+- Repository identity は stable User Handle の `owner + slug` を正本にする。
 
 ### `repositories/indexeddb/`
 
-Dexie を使った Web 向け実装を置きます。
+Dexie を使った local prototype / development adapter を置きます。
 
 Examples:
 
@@ -115,6 +142,7 @@ Rules:
 
 - Dexie 固有の API はここに閉じ込める。
 - migration は `db/` 配下に寄せる。
+- Cloud D1 MVP の production behavior と異なる場合は docs か ADR に明記する。
 
 ### `features/`
 
@@ -160,9 +188,9 @@ React feature component
   ↓
 Repository contract
   ↓
-IndexedDB implementation (Dexie)
+Workers API / local prototype adapter
   ↓
-useLiveQuery observes changes
+React data binding observes changes
   ↓
 React re-renders
 ```
@@ -170,11 +198,11 @@ React re-renders
 For computed outputs:
 
 ```text
-Recipe + Inventory + now
+Recipe Repository + optional viewer Inventory + now
   ↓
 domain pure function
   ↓
-AuditResult / SeasoningBOM / Recommendation
+RecipeAlert / InventoryAudit / SeasoningBOM / Recommendation
   ↓
 UI rendering
 ```
@@ -203,25 +231,28 @@ Forbidden:
 
 ## MVP Route Structure
 
-Initial route plan:
+Cloud D1 MVP route plan:
 
 | Route | Purpose |
 | --- | --- |
-| `/` | Repository list / dashboard |
-| `/repositories/:slug` | GitHub-style recipe repository detail |
-| `/repositories/:slug/edit` | Recipe editor |
-| `/inventory` | Fridge inventory |
-| `/security` | Cross-recipe security alerts |
-| `/eol` | EOL dashboard |
-| `/backup` | Backup / restore |
+| `/` | Public / signed-in landing and repository discovery |
+| `/:owner/:repo` | GitHub-style recipe repository detail |
+| `/:owner/:repo/edit` | Recipe editor for authorized users |
+| `/:owner/:repo/dependencies` | Repository dependency graph entry point |
+| `/:owner/:repo/security` | Repository public recipe alerts and owner inventory audit entry point |
+| `/new` | Create repository |
+| `/inventory` | Signed-in user's private inventory |
+| `/users/:username` | Profile and contribution graph |
+
+Legacy prototype routes under `/repositories/:slug` may exist during migration, but they are not canonical for the cloud MVP.
 
 ## Error Handling Policy
 
-MVP はローカルアプリなので、エラーは次の方針で扱います。
+MVP は hosted service なので、エラーは次の方針で扱います。
 
 - User input validation error: UI 上で即時表示する。
-- Import schema error: 何が不正かを表示し、既存データは変更しない。
-- IndexedDB error: ユーザーに再試行 / backup export を促す。
+- Auth / authorization error: ログイン、権限、visibility のどれが原因かを安全に表示する。
+- API / D1 error: ユーザーに再試行を促し、秘密情報や private inventory を漏らさない。
 - Domain impossible state: 開発時にテストで防ぎ、実行時は安全側に fallback する。
 
 ## Testing Strategy

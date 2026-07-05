@@ -17,15 +17,21 @@ vi.mock("../features/recipes/DashboardPage", () => ({
 }));
 
 vi.mock("../features/recipes/RecipeDetailPage", () => ({
-  RecipeDetailPage: ({ slug }: { slug: string }) => `Repository route: ${slug}`,
+  RecipeDetailPage: ({ ownerHandle, slug }: { ownerHandle: string; slug: string }) =>
+    `Repository route: ${ownerHandle}/${slug}`,
 }));
 
 vi.mock("../features/recipes/RecipeEditorPage", () => ({
-  RecipeEditorPage: ({ slug }: { slug: string }) => `Repository editor route: ${slug}`,
+  RecipeEditorPage: ({ ownerHandle, slug }: { ownerHandle: string; slug: string }) =>
+    `Repository editor route: ${ownerHandle}/${slug}`,
 }));
 
 vi.mock("../features/inventory/InventoryPage", () => ({
   InventoryPage: () => "Inventory route",
+}));
+
+vi.mock("../features/profile/ProfilePage", () => ({
+  ProfilePage: ({ username }: { username: string }) => `Profile route: ${username}`,
 }));
 
 vi.mock("../features/audit/SecurityPage", () => ({
@@ -57,12 +63,16 @@ describe("App", () => {
 
   it.each([
     ["/", "Dashboard route", "Repositories"],
-    ["/repositories/curry-rice", "Repository route: curry-rice", null],
-    ["/repositories/curry-rice/edit", "Repository editor route: curry-rice", null],
+    ["/me/curry-rice", "Repository route: me/curry-rice", null],
+    ["/me/curry-rice/edit", "Repository editor route: me/curry-rice", null],
+    ["/repositories/curry-rice", "Repository route: me/curry-rice", null],
+    ["/repositories/curry-rice/edit", "Repository editor route: me/curry-rice", null],
+    ["/new", "Repository editor route: me/new", null],
     ["/inventory", "Inventory route", "Inventory"],
     ["/security", "Security route", "Security"],
     ["/eol", "EOL route", "EOL"],
     ["/backup", "Backup route", "Backup"],
+    ["/users/me", "Profile route: me", null],
   ])("renders %s", (path, routeText, activeNav) => {
     renderApp(path);
 

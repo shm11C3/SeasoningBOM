@@ -10,10 +10,15 @@ SeasoningBOM は、料理とソフトウェアサプライチェーンの語彙�
 | --- | --- |
 | SeasoningBOM | アプリ名、および独自 SBOM 風 JSON 形式の名前 |
 | FBOM | Food BOM の略称。副題・内部コードネームとして使用可 |
-| Recipe Repository | 料理レシピを GitHub Repository 風に扱う単位 |
-| Recipe | 具体的な料理内容。MVP では Recipe Repository とほぼ同義 |
+| Recipe Repository | 料理レシピを GitHub Repository 風に扱う共有単位。`owner + slug` で識別する |
+| Recipe | Recipe Repository 内の具体的な料理内容 |
+| Repository Owner | Recipe Repository を所有するユーザー |
+| User Handle | SeasoningBOM 内で予約され、URL に使われる安定 username |
+| Repository Slug | owner 内で一意な URL 用識別子 |
 | Component | レシピに含まれる材料 |
 | Inventory Item | 冷蔵庫・食品庫にある食材 |
+| Recipe Alert | Repository 内容だけから生成できる公開可能な警告 |
+| Inventory Audit | Repository と本人の Inventory を照合する本人限定の監査 |
 | Repository layer | IndexedDB / SQLite などの永続化差分を隠す層 |
 
 ## Dependency Terms
@@ -44,7 +49,7 @@ SeasoningBOM は、料理とソフトウェアサプライチェーンの語彙�
 
 | Term | Meaning |
 | --- | --- |
-| `nom audit` | レシピと在庫を監査し、EOL・不足・アレルゲン等を検出する |
+| `nom audit` | Recipe Alert と本人限定 Inventory Audit を実行する監査コマンド風の総称 |
 | `nom install` | 不足材料から買い物リストを生成する |
 | `nom outdated` | EOL 間近または EOL 済み食材を表示する |
 | `nom dedupe` | 重複食材を統合する将来機能 |
@@ -56,7 +61,7 @@ SeasoningBOM は、料理とソフトウェアサプライチェーンの語彙�
 | --- | --- |
 | Code tab | README、材料、手順、主要アクションを表示するタブ |
 | Dependencies tab | 直接依存・推移的依存を表示するタブ |
-| Security tab | `nom audit` 結果を Security alerts 風に表示するタブ |
+| Security tab | Recipe Alert と、ログイン本人向け Inventory Audit を Security alerts 風に表示するタブ |
 | Issues tab | 食材期限・改善メモ・不足材料を Issue 風に表示する将来タブ |
 | Releases tab | レシピのバージョン履歴を表示する将来タブ |
 | Insights tab | EOL 救済率などを表示する将来タブ |
@@ -110,4 +115,3 @@ Joke recipe license examples:
 - `Grandma Public License`
 
 Never describe joke recipe licenses as the actual source license.
-

@@ -18,12 +18,13 @@ describe("runNomAudit", () => {
       settings: makeSettings(),
     });
 
-    expect(audit.summary.high).toBe(1);
-    expect(audit.issues[0]).toMatchObject({
+    expect(audit.inventoryAudit.summary.high).toBe(1);
+    expect(audit.inventoryAudit.issues[0]).toMatchObject({
       category: "missing",
       severity: "high",
       componentName: "rice",
     });
+    expect(audit.recipeAlerts).toEqual([]);
   });
 
   it("reports unsupported inventory as critical and unavailable", () => {
@@ -43,12 +44,15 @@ describe("runNomAudit", () => {
       settings: makeSettings(),
     });
 
-    expect(audit.summary.critical).toBe(1);
-    expect(audit.issues.some((issue) => issue.category === "unsupported")).toBe(true);
-    expect(audit.issues.some((issue) => issue.category === "missing")).toBe(true);
+    expect(audit.inventoryAudit.summary.critical).toBe(1);
+    expect(audit.inventoryAudit.issues.some((issue) => issue.category === "unsupported")).toBe(
+      true,
+    );
+    expect(audit.inventoryAudit.issues.some((issue) => issue.category === "missing")).toBe(true);
+    expect(audit.recipeAlerts).toEqual([]);
   });
 
-  it("adds transitive dependency allergen issues", () => {
+  it("adds transitive dependency allergen issues as public recipe alerts", () => {
     const audit = runNomAudit({
       recipe: makeRecipe(),
       components: [
@@ -66,7 +70,7 @@ describe("runNomAudit", () => {
       settings: makeSettings(),
     });
 
-    expect(audit.issues).toEqual(
+    expect(audit.recipeAlerts).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           category: "transitive-dependency",
@@ -76,7 +80,7 @@ describe("runNomAudit", () => {
     );
   });
 
-  it("reports hazardous, EOL, allergens, licenses, and quantity issues conservatively", () => {
+  it("splits recipe alerts from private inventory audit issues", () => {
     const audit = runNomAudit({
       recipe: makeRecipe({ license: "Grandma Secret License" }),
       components: [
@@ -143,9 +147,8 @@ describe("runNomAudit", () => {
       settings: makeSettings(),
     });
 
-    expect(audit.issues).toEqual(
+    expect(audit.recipeAlerts).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ category: "hazardous", severity: "critical" }),
         expect.objectContaining({ category: "allergen", severity: "medium" }),
         expect.objectContaining({ category: "license", severity: "low" }),
         expect.objectContaining({
@@ -153,8 +156,13 @@ describe("runNomAudit", () => {
           severity: "low",
           recommendation: "Optional garnish metadata.",
         }),
+      ]),
+    );
+    expect(audit.inventoryAudit.issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ category: "hazardous", severity: "critical" }),
         expect.objectContaining({
-          category: "missing",
+          category: "quantity",
           message: "potato exists with a different unit, so quantity cannot be compared",
         }),
         expect.objectContaining({
@@ -189,14 +197,14 @@ describe("runNomAudit", () => {
       settings: makeSettings(),
     });
 
-    expect(audit.issues).toEqual(
+    expect(audit.inventoryAudit.issues).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           category: "eol",
           message: "tofu will reach EOL tomorrow",
         }),
         expect.objectContaining({
-          category: "missing",
+          category: "quantity",
           message: "tofu@300g is insufficient",
           recommendation: "200g must be added with nom install.",
         }),
@@ -221,9 +229,9 @@ describe("runNomAudit", () => {
       settings: makeSettings(),
     });
 
-    expect(audit.issues).toEqual([
+    expect(audit.inventoryAudit.issues).toEqual([
       expect.objectContaining({
-        category: "missing",
+        category: "quantity",
         severity: "low",
         message: "parsley@2piece is insufficient",
       }),

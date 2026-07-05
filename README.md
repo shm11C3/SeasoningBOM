@@ -2,9 +2,9 @@
 
 > If cooking were a software supply chain.
 
-SeasoningBOM is a local-first joke recipe app that treats recipes like GitHub repositories, ingredients like dependencies, expiration dates like EOL, and food safety checks like `nom audit`.
+SeasoningBOM is a GitHub-parody recipe sharing service that treats recipes like repositories, ingredients like dependencies, expiration dates like EOL, and food safety checks like `nom audit`.
 
-料理を **Repository**、材料を **Dependencies**、賞味期限を **EOL**、監査を **`nom audit`** として扱う、GitHub 風のネタ系レシピ管理アプリです。
+料理を **Repository**、材料を **Dependencies**、賞味期限を **EOL**、監査を **`nom audit`** として扱う、GitHub 風のネタ系レシピ共有サービスです。
 
 ## Concept
 
@@ -23,10 +23,11 @@ curry-rice@1.2.0
 SeasoningBOM helps you:
 
 - manage recipes as GitHub-like repositories
-- manage fridge inventory locally
+- share public, private, and unlisted recipe repositories
+- manage private fridge inventory
 - detect ingredients nearing EOL
 - avoid unsupported ingredients past their use-by date
-- detect allergens and transitive ingredient dependencies
+- separate public recipe alerts from private inventory audits
 - generate a SeasoningBOM JSON snapshot
 - create a shopping list with `nom install`
 
@@ -34,9 +35,11 @@ It is a joke app, but food safety is not a joke: expired use-by ingredients are 
 
 ## Product Status
 
-Current phase: **MVP web app implemented**.
+Current phase: **local MVP implemented, Cloud D1 sharing MVP in progress**.
 
-The React + Vite app includes local IndexedDB persistence, pure domain logic, GitHub-like recipe repository screens, inventory management, security/EOL dashboards, SeasoningBOM JSON download, and backup / restore.
+The current React + Vite app includes local IndexedDB persistence, pure domain logic, GitHub-like recipe repository screens, inventory management, security/EOL dashboards, SeasoningBOM JSON download, and backup / restore.
+
+The canonical product direction is now the Cloudflare Pages / Workers / D1 recipe sharing service described in `docs/seasoningbom_requirements_cloud_d1.md`. Existing IndexedDB code is a local prototype and migration base.
 
 ## Getting Started
 
@@ -64,9 +67,13 @@ The dev server defaults to `http://127.0.0.1:5173/`.
 | Build | Vite |
 | UI library | `@primer/react` |
 | Icons | Temporary internal SVG placeholders |
-| Web storage | IndexedDB |
-| IndexedDB wrapper | Dexie.js |
-| React data binding | `dexie-react-hooks` / `useLiveQuery` |
+| Hosting target | Cloudflare Pages |
+| API target | Cloudflare Workers |
+| Production DB target | Cloudflare D1 |
+| Auth target | GitHub OAuth |
+| Local prototype storage | IndexedDB |
+| Local prototype DB wrapper | Dexie.js |
+| Local prototype React binding | `dexie-react-hooks` / `useLiveQuery` |
 | Package manager | pnpm |
 | Lint / Format | Biome |
 | Test | Vitest + Testing Library |
@@ -74,24 +81,29 @@ The dev server defaults to `http://127.0.0.1:5173/`.
 
 ## MVP Scope
 
-MVP includes:
+Cloud MVP target includes:
 
-- recipe repository CRUD
-- inventory CRUD
+- GitHub OAuth login
+- recipe repository CRUD with stable `owner + slug` URLs
+- public / private / unlisted visibility
+- private inventory CRUD
 - lifecycle status calculation
-- `nom audit`
-- EOL / unsupported / hazardous / allergen / missing ingredient detection
+- public Recipe Alerts and private Inventory Audits
+- EOL / unsupported / hazardous / allergen / missing ingredient detection without leaking private inventory
 - recipe recommendation using ingredients near EOL
-- SeasoningBOM JSON download
-- local IndexedDB persistence
-- backup / restore JSON
+- SeasoningBOM JSON download without Inventory Audit details
+- Star, Fork, and Contribution graph basics
 - GitHub-like repository detail UI
 - Code / Dependencies / Security tabs
 
-MVP excludes:
+Local prototype currently includes:
 
-- account system
-- cloud sync
+- local IndexedDB persistence
+- backup / restore JSON
+- reload-oriented E2E coverage for local DB behavior
+
+Cloud MVP excludes:
+
 - real SPDX / CycloneDX compatibility
 - nutrition database integration
 - barcode scanning
@@ -120,10 +132,14 @@ Architecture decisions:
 - [ADR 0002: Use Primer for GitHub-like UI](docs/adr/0002-primer-for-github-like-ui.md)
 - [ADR 0003: Dexie-backed IndexedDB behind Repository contracts](docs/adr/0003-dexie-indexeddb-repository-layer.md)
 - [ADR 0004: Keep domain logic as pure functions](docs/adr/0004-domain-logic-as-pure-functions.md)
+- [ADR 0005: Cloudflare D1 recipe sharing MVP](docs/adr/0005-cloudflare-d1-recipe-sharing-mvp.md)
+- [ADR 0006: Split public Recipe Alerts and private Inventory Audits](docs/adr/0006-split-recipe-alerts-and-inventory-audits.md)
+- [ADR 0007: Stable User Handles for Repository URLs](docs/adr/0007-stable-user-handles-for-repository-urls.md)
 
-Original requirements:
+Requirements:
 
-- [SeasoningBOM requirements](docs/requirements.md)
+- [Cloud D1 requirements](docs/seasoningbom_requirements_cloud_d1.md)
+- [Original local-first requirements](docs/requirements.md)
 
 ## Core Terms
 

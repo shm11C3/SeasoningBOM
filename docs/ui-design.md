@@ -38,8 +38,8 @@ Characteristics:
 | Screen | Route | MVP |
 | --- | --- | --- |
 | Repository list | `/` | Yes |
-| Repository detail | `/repositories/:slug` | Yes |
-| Recipe editor | `/repositories/:slug/edit` | Yes |
+| Repository detail | `/:owner/:repo` | Yes |
+| Recipe editor | `/:owner/:repo/edit` | Yes |
 | Inventory | `/inventory` | Yes |
 | Security alerts | `/security` | Yes |
 | EOL dashboard | `/eol` | Yes |
@@ -154,7 +154,7 @@ UI components:
 
 ## Security Tab
 
-Displays `nom audit` results as GitHub Security alerts.
+Displays public Recipe Alerts and, for the signed-in user, private Inventory Audit results.
 
 Severity ordering:
 
@@ -168,18 +168,28 @@ Example:
 ```text
 Security alerts
 
-Critical
-- chicken@200g is unsupported
-
-High
-- tofu@300g has reached EOL
+Recipe alerts
 
 Medium
-- milk@1L will reach EOL in 1 day
+- curry-roux contains wheat
 
 Low
-- curry-roux contains transitive dependency: wheat
+- dependency tree depth is 2
+
+Your inventory audit
+
+High
+- milk in your inventory reached EOL
+
+Medium
+- potato will reach EOL in 2 days
 ```
+
+Privacy:
+
+- Recipe Alerts are derived only from Repository content and follow Repository visibility.
+- Inventory Audit details are shown only to the inventory owner.
+- Public visitors must never see another user's EOL, unsupported, hazardous, missing, or quantity audit details.
 
 ## Inventory Screen
 
@@ -203,11 +213,11 @@ Columns:
 
 ## Security Alerts Screen
 
-Shows cross-recipe audit result.
+Shows the signed-in user's cross-recipe Inventory Audit result.
 
 MVP:
 
-- run audit for all recipes using current inventory
+- run audit for visible recipes using the current user's inventory
 - group by severity
 - link back to recipe detail
 

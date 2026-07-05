@@ -8,8 +8,8 @@ MVP では SPDX / CycloneDX 完全互換は目指しません。料理レシピ�
 
 1. レシピの直接依存材料を表現する。
 2. 材料内部の推移的依存を表現する。
-3. 生成時点の lifecycle status を含める。
-4. `nom audit` の結果を含める。
+3. Repository 内容だけから生成できる public Recipe Alert を含める。
+4. Private Inventory や Inventory Audit を含めない。
 5. JSON としてダウンロード・共有しやすくする。
 
 ## Non-Goals
@@ -19,6 +19,8 @@ MVP では SPDX / CycloneDX 完全互換は目指しません。料理レシピ�
 - 暗号署名
 - サーバー登録
 - 長期監査ログ
+- private inventory export
+- Inventory Audit results
 
 ## Top-Level Shape
 
@@ -27,9 +29,16 @@ type SeasoningBOM = {
   bomFormat: "SeasoningBOM";
   specVersion: "0.1.0";
   generatedAt: string;
-  recipe: SeasoningBOMRecipe;
+  repository: SeasoningBOMRepository;
   components: SeasoningBOMComponent[];
-  audit: SeasoningBOMAudit;
+  audit: SeasoningBOMRecipeAudit;
+};
+
+type SeasoningBOMRepository = {
+  owner: string;
+  name: string;
+  version: string;
+  visibility: "public" | "private" | "unlisted";
 };
 ```
 
@@ -40,10 +49,11 @@ type SeasoningBOM = {
   "bomFormat": "SeasoningBOM",
   "specVersion": "0.1.0",
   "generatedAt": "2026-07-01T12:00:00+09:00",
-  "recipe": {
+  "repository": {
+    "owner": "shoma",
     "name": "curry-rice",
     "version": "1.2.0",
-    "servings": 4
+    "visibility": "public"
   },
   "components": [
     {
@@ -51,10 +61,6 @@ type SeasoningBOM = {
       "quantity": 0.5,
       "unit": "box",
       "dependencyType": "required",
-      "lifecycle": {
-        "eolDate": "2026-07-05",
-        "status": "active"
-      },
       "allergens": [],
       "dependencies": [
         {
@@ -71,14 +77,15 @@ type SeasoningBOM = {
     }
   ],
   "audit": {
-    "summary": {
-      "totalIssues": 0,
-      "critical": 0,
-      "high": 0,
-      "medium": 0,
-      "low": 0
-    },
-    "issues": []
+    "issues": [
+      {
+        "id": "curry-roux-transitive-dependency-wheat",
+        "severity": "medium",
+        "category": "transitive-dependency",
+        "componentName": "curry-roux",
+        "message": "curry-roux contains transitive dependency: wheat"
+      }
+    ]
   }
 }
 ```
@@ -94,26 +101,12 @@ type SeasoningBOMComponent = {
   unit: Unit;
   dependencyType: DependencyType;
   required: boolean;
-  lifecycle?: {
-    eolDate?: string;
-    useByDate?: string;
-    status: LifecycleStatus;
-  };
   allergens: Allergen[];
   dependencies: SeasoningBOMDependency[];
 };
 ```
 
-If matching inventory item is found:
-
-- include lifecycle status
-- include best-before date as `eolDate`
-- include use-by date as `useByDate`
-
-If no matching inventory item is found:
-
-- omit `lifecycle`
-- audit should include missing issue
+SeasoningBOM components are generated from repository recipe data only. Do not enrich them with a viewer's Inventory Item lifecycle status.
 
 ## Dependency Mapping
 
@@ -126,20 +119,15 @@ type SeasoningBOMDependency = {
 };
 ```
 
-## Audit Mapping
+## Recipe Alert Mapping
 
 ```ts
-type SeasoningBOMAudit = {
-  summary: {
-    totalIssues: number;
-    critical: number;
-    high: number;
-    medium: number;
-    low: number;
-  };
-  issues: AuditIssue[];
+type SeasoningBOMRecipeAudit = {
+  issues: RecipeAlert[];
 };
 ```
+
+Only public Recipe Alerts can appear here. Inventory Audit issues such as EOL, unsupported, hazardous, missing, and quantity shortage are private user data and must not appear in SeasoningBOM.
 
 ## Generation Rules
 
@@ -148,6 +136,7 @@ type SeasoningBOMAudit = {
 - `generatedAt` is the time of export.
 - `specVersion` stays fixed at `0.1.0` for MVP.
 - Output should be deterministic except for `generatedAt`.
+- Output follows Repository visibility, but even owner-generated exports exclude private Inventory Audit details by default.
 - Components should be sorted by recipe order.
 - Dependencies should be sorted by recipe-defined order.
 
@@ -174,4 +163,3 @@ When changing the format:
 - Document changes in this file.
 
 MVP does not import SeasoningBOM files as app backups. For full data transfer, use `SeasoningBOMAppBackup` instead.
-

@@ -41,9 +41,11 @@ export type IngredientDependency = {
 
 export type RecipeRepositoryEntity = {
   id: string;
+  ownerHandle: string;
   name: string;
   slug: string;
   description?: string;
+  visibility: "public" | "private" | "unlisted";
   version: string;
   servings: number;
   tags: string[];
@@ -53,6 +55,9 @@ export type RecipeRepositoryEntity = {
   createdAt: string;
   updatedAt: string;
 };
+
+export const defaultOwnerHandle = "me";
+export const repositoryVisibilities = ["public", "private", "unlisted"] as const;
 
 export type RecipeComponent = {
   id: string;

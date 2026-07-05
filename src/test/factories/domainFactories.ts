@@ -36,9 +36,11 @@ export function makeRecipe(
 ): RecipeRepositoryEntity {
   return {
     id: "recipe-curry",
+    ownerHandle: "me",
     name: "Curry Rice",
     slug: "curry-rice",
     description: "Stable curry recipe.",
+    visibility: "public",
     version: "1.2.0",
     servings: 4,
     tags: ["japanese"],

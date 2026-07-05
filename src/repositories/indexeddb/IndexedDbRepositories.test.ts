@@ -41,7 +41,13 @@ class FakeQuery<T extends { id: string }> {
   }
 
   private predicateFor(value: unknown) {
-    return (item: T) => this.table.valueFor(item) === value;
+    return (item: T) => {
+      const itemValue = this.table.valueFor(item);
+      return Array.isArray(itemValue) && Array.isArray(value)
+        ? itemValue.length === value.length &&
+            itemValue.every((part, index) => part === value[index])
+        : itemValue === value;
+    };
   }
 }
 
@@ -86,6 +92,10 @@ class FakeTable<T extends { id: string }> {
   }
 
   valueFor(item: T): unknown {
+    if (this.activeKey === "[ownerHandle+slug]") {
+      const repository = item as T & { ownerHandle?: string; slug?: string };
+      return [repository.ownerHandle, repository.slug];
+    }
     return item[this.activeKey as keyof T];
   }
 
@@ -130,6 +140,12 @@ describe("IndexedDB repositories", () => {
     ]);
     await expect(repositories.recipes.findById(curry.id)).resolves.toMatchObject(curry);
     await expect(repositories.recipes.findBySlug("curry-rice")).resolves.toMatchObject(curry);
+    await expect(
+      repositories.recipes.findByOwnerAndSlug("me", "curry-rice"),
+    ).resolves.toMatchObject(curry);
+    await expect(
+      repositories.recipes.findByOwnerAndSlug("other", "curry-rice"),
+    ).resolves.toBeNull();
     await expect(repositories.components.findAll()).resolves.toHaveLength(1);
     await expect(repositories.components.findByRecipeId(curry.id)).resolves.toEqual([component]);
 
