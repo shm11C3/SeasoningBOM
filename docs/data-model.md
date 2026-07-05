@@ -63,7 +63,7 @@ Identity:
 - API identity: `{ ownerHandle, repositorySlug }`
 - DB uniqueness: `UNIQUE(owner_user_id, slug)`
 - `slug` 単独はグローバル一意ではない。
-- `ownerHandle` is `users.username`, initialized from GitHub OAuth at first login and stable in P0.
+- `ownerHandle` is `user_profiles.username`, initialized from Clerk/provider profile hints or explicit user input at first sign-in and stable in P0.
 
 ## Recipe Component
 

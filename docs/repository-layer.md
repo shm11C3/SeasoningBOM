@@ -113,7 +113,7 @@ src/workers/
 Core D1 tables:
 
 ```text
-users
+user_profiles
 recipe_repositories
 recipe_components
 ingredient_dependencies
@@ -127,13 +127,14 @@ Production rules:
 
 - `recipe_repositories` has `UNIQUE(owner_user_id, slug)`.
 - public Repository reads use `owner + slug`.
-- `owner` in routes is the stable SeasoningBOM User Handle stored as `users.username`.
+- `owner` in routes is the stable SeasoningBOM User Handle stored as `user_profiles.username`.
 - private Repository reads require the owner.
 - unlisted Repository reads require the exact URL but are not listed publicly.
 - `inventory_items` are always scoped to the authenticated user.
 - Recipe Alert queries may use Repository content only.
 - Inventory Audit queries may combine Repository content with only the viewer's Inventory.
 - D1 bindings and SQL stay inside Workers / repository implementation.
+- Clerk owns sign-in, sessions, and account linking. SeasoningBOM-owned tables reference `user_profiles`, not provider usernames, email addresses, or Clerk display names directly.
 
 ## IndexedDB Prototype Implementation
 

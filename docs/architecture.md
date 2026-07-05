@@ -16,7 +16,7 @@ Cloud D1 MVP では Cloudflare Pages でフロントエンドを配信し、Clou
 | Hosting | Cloudflare Pages |
 | API | Cloudflare Workers |
 | Production DB | Cloudflare D1 |
-| Auth | GitHub OAuth |
+| Auth | Clerk social login |
 | Local prototype storage | IndexedDB |
 | Local prototype DB wrapper | Dexie.js |
 | Local prototype React binding | `dexie-react-hooks` / `useLiveQuery` |
@@ -120,13 +120,15 @@ Examples:
 - `D1RecipeRepository`
 - `D1InventoryRepository`
 - `D1ContributionRepository`
-- GitHub OAuth callback handler
+- Clerk session verification helper
 
 Rules:
 
 - D1 binding や SQL は Workers / repository implementation に閉じ込める。
 - private repository / private inventory の authorization を API layer で必ず確認する。
 - Repository identity は stable User Handle の `owner + slug` を正本にする。
+- Authentication は Clerk に委譲し、Workers API は Clerk session token を検証して `user_profiles` に対応付ける。
+- SeasoningBOM では email/password、SMS login、password reset flow を実装しない。
 
 ### `repositories/indexeddb/`
 

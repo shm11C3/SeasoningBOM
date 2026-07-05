@@ -29,6 +29,7 @@
 | [0005](adr/0005-cloudflare-d1-recipe-sharing-mvp.md) | Cloudflare D1 recipe sharing MVP |
 | [0006](adr/0006-split-recipe-alerts-and-inventory-audits.md) | Split public Recipe Alerts and private Inventory Audits |
 | [0007](adr/0007-stable-user-handles-for-repository-urls.md) | Stable User Handles for Repository URLs |
+| [0008](adr/0008-clerk-social-auth-for-cloud-mvp.md) | Clerk social authentication for the Cloud MVP |
 
 ## Reading Order
 

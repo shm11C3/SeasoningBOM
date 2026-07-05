@@ -61,7 +61,7 @@ If implementation and docs disagree, update the docs or explain why the implemen
 - Hosting target: Cloudflare Pages
 - API target: Cloudflare Workers
 - Production persistence target: Cloudflare D1
-- Auth target: GitHub OAuth
+- Auth target: Clerk social login
 - Local prototype persistence: IndexedDB
 - Local prototype IndexedDB wrapper: Dexie.js
 - Local prototype React DB binding: `dexie-react-hooks` / `useLiveQuery`
@@ -156,7 +156,7 @@ Avoid:
 - Calling use-by expiration "EOL"; it is `unsupported`
 - Treating joke recipe licenses as the real source license
 - Mixing public Recipe Alerts and private Inventory Audit issues in one serialized result
-- Treating a live GitHub username as the mutable source of repository URLs
+- Treating a live provider username or email address as the mutable source of repository URLs
 
 ## Testing Guidance
 
