@@ -1,0 +1,429 @@
+import { describe, expect, it } from "vitest";
+import type {
+  CloudRecipeRepository,
+  CreateRecipeRepositoryInput,
+  RecipeRepositoryMetadataRepository,
+} from "../../repositories/cloudflare-d1/D1RecipeRepository";
+import type {
+  UserProfile,
+  UserProfileRepository,
+} from "../../repositories/cloudflare-d1/D1UserProfileRepository";
+import type { ClerkAuthenticationOptions } from "../auth/clerk";
+import { handleGetRepository, handleListRepositories, handlePostRepository } from "./repositories";
+import type { D1Database, WorkerEnv } from "./types";
+
+const env: WorkerEnv = {
+  DB: {} as D1Database,
+  CLERK_AUTHORIZED_PARTIES: "https://example.test",
+  CLERK_JWT_KEY: "test-jwt-key",
+};
+
+const owner: UserProfile = {
+  authProvider: "clerk",
+  authSubject: "user_test",
+  contributionVisibility: "summary_only",
+  createdAt: "2026-07-06T00:00:00.000Z",
+  id: "profile_test",
+  updatedAt: "2026-07-06T00:00:00.000Z",
+  username: "test-user",
+};
+
+const validSessionAuth: ClerkAuthenticationOptions = {
+  verifyToken: async () =>
+    ({
+      azp: "https://example.test",
+      sid: "sess_test",
+      sub: "user_test",
+    }) as Awaited<ReturnType<NonNullable<ClerkAuthenticationOptions["verifyToken"]>>>,
+};
+
+const privateRepository: CloudRecipeRepository = {
+  createdAt: "2026-07-06T00:00:00.000Z",
+  id: "repo_private",
+  maintainer: "test-user",
+  name: "Private Curry",
+  ownerHandle: "test-user",
+  ownerUserId: "profile_test",
+  servings: 2,
+  slug: "private-curry",
+  tags: [],
+  updatedAt: "2026-07-06T00:00:00.000Z",
+  version: "0.1.0",
+  visibility: "private",
+};
+
+async function parseJson(response: Response) {
+  return response.json() as Promise<unknown>;
+}
+
+describe("repository API handlers", () => {
+  it("returns a JSON error when public repository listing fails", async () => {
+    const response = await handleListRepositories(env, {
+      recipeRepositories: {
+        ...createRecipeRepository([]),
+        async listPublic() {
+          throw new Error("D1 unavailable");
+        },
+      },
+    });
+
+    await expect(parseJson(response)).resolves.toEqual({
+      error: {
+        code: "internal_error",
+        message: "Failed to load repositories.",
+      },
+    });
+    expect(response.status).toBe(500);
+  });
+
+  it("returns a JSON error when repository lookup fails", async () => {
+    const response = await handleGetRepository(
+      new Request("https://example.test/api/repos/test-user/private-curry"),
+      "test-user",
+      "private-curry",
+      env,
+      {
+        recipeRepositories: {
+          ...createRecipeRepository([]),
+          async findByOwnerAndSlug() {
+            throw new Error("D1 unavailable");
+          },
+        },
+      },
+    );
+
+    await expect(parseJson(response)).resolves.toEqual({
+      error: {
+        code: "internal_error",
+        message: "Failed to load repository.",
+      },
+    });
+    expect(response.status).toBe(500);
+  });
+
+  it("returns a JSON error when private repository owner profile lookup fails", async () => {
+    const response = await handleGetRepository(
+      new Request("https://example.test/api/repos/test-user/private-curry", {
+        headers: {
+          authorization: "Bearer fake-session",
+        },
+      }),
+      "test-user",
+      "private-curry",
+      env,
+      {
+        ...validSessionAuth,
+        recipeRepositories: createRecipeRepository([privateRepository]),
+        userProfiles: {
+          ...createUserProfileRepository([]),
+          async findByAuthSubject() {
+            throw new Error("D1 unavailable");
+          },
+        },
+      },
+    );
+
+    await expect(parseJson(response)).resolves.toEqual({
+      error: {
+        code: "internal_error",
+        message: "Failed to load profile.",
+      },
+    });
+    expect(response.status).toBe(500);
+  });
+
+  it("hides private repositories when the session has no bootstrapped profile", async () => {
+    const response = await handleGetRepository(
+      new Request("https://example.test/api/repos/test-user/private-curry", {
+        headers: {
+          authorization: "Bearer fake-session",
+        },
+      }),
+      "test-user",
+      "private-curry",
+      env,
+      {
+        ...validSessionAuth,
+        recipeRepositories: createRecipeRepository([privateRepository]),
+        userProfiles: createUserProfileRepository([]),
+      },
+    );
+
+    await expect(parseJson(response)).resolves.toEqual({
+      error: {
+        code: "not_found",
+        message: "Repository not found.",
+      },
+    });
+    expect(response.status).toBe(404);
+  });
+
+  it("creates a repository with default metadata", async () => {
+    const response = await handlePostRepository(
+      new Request("https://example.test/api/repos", {
+        body: JSON.stringify({
+          name: "Curry Rice",
+          slug: "curry-rice",
+        }),
+        method: "POST",
+      }),
+      owner,
+      env,
+      {
+        createRepositoryId: () => "repo_new",
+        now: () => new Date("2026-07-06T01:02:03.000Z"),
+        recipeRepositories: createRecipeRepository([]),
+      },
+    );
+
+    await expect(parseJson(response)).resolves.toEqual({
+      repository: expect.objectContaining({
+        id: "repo_new",
+        servings: 2,
+        version: "0.1.0",
+        visibility: "public",
+      }),
+    });
+    expect(response.status).toBe(201);
+  });
+
+  it.each([
+    {
+      body: null,
+      message: "Request body must be a JSON object.",
+    },
+    {
+      body: { slug: "curry-rice" },
+      message: "Name must be a non-empty string up to 120 characters.",
+    },
+    {
+      body: { name: "Curry Rice", slug: "Curry_Rice" },
+      message: "Slug must be 1-80 lowercase letters, numbers, or hyphens.",
+    },
+    {
+      body: { name: "Curry Rice", slug: "curry-rice", visibility: "friends" },
+      message: "Visibility must be public, private, or unlisted.",
+    },
+    {
+      body: { name: "Curry Rice", slug: "curry-rice", version: "v".repeat(33) },
+      message: "Version must be 32 characters or fewer.",
+    },
+    {
+      body: { name: "Curry Rice", slug: "curry-rice", servings: 0 },
+      message: "Servings must be an integer between 1 and 999.",
+    },
+    {
+      body: { name: "Curry Rice", slug: "curry-rice", description: "d".repeat(281) },
+      message: "Description must be 280 characters or fewer.",
+    },
+    {
+      body: { name: "Curry Rice", slug: "curry-rice", readme: "r".repeat(20_001) },
+      message: "README must be 20000 characters or fewer.",
+    },
+    {
+      body: { name: "Curry Rice", slug: "curry-rice", license: "l".repeat(121) },
+      message: "License must be 120 characters or fewer.",
+    },
+  ])("rejects invalid repository create input %#", async ({ body, message }) => {
+    const response = await handlePostRepository(
+      new Request("https://example.test/api/repos", {
+        body: JSON.stringify(body),
+        method: "POST",
+      }),
+      owner,
+      env,
+      {
+        recipeRepositories: createRecipeRepository([]),
+      },
+    );
+
+    await expect(parseJson(response)).resolves.toEqual({
+      error: {
+        code: "validation_failed",
+        message,
+      },
+    });
+    expect(response.status).toBe(400);
+  });
+
+  it("returns a JSON error when duplicate preflight lookup fails", async () => {
+    const response = await handlePostRepository(createValidPostRequest(), owner, env, {
+      recipeRepositories: {
+        ...createRecipeRepository([]),
+        async findByOwnerAndSlug() {
+          throw new Error("D1 unavailable");
+        },
+      },
+    });
+
+    await expect(parseJson(response)).resolves.toEqual({
+      error: {
+        code: "internal_error",
+        message: "Failed to create repository.",
+      },
+    });
+    expect(response.status).toBe(500);
+  });
+
+  it("returns conflict when a create race reserves the slug", async () => {
+    let lookups = 0;
+    const response = await handlePostRepository(
+      createValidPostRequest({ slug: "private-curry" }),
+      owner,
+      env,
+      {
+        recipeRepositories: {
+          ...createRecipeRepository([]),
+          async create() {
+            throw new Error("D1 constraint");
+          },
+          async findByOwnerAndSlug() {
+            lookups += 1;
+            return lookups === 1 ? null : privateRepository;
+          },
+        },
+      },
+    );
+
+    await expect(parseJson(response)).resolves.toEqual({
+      error: {
+        code: "repository_already_exists",
+        message: "A repository with this owner and slug already exists.",
+      },
+    });
+    expect(response.status).toBe(409);
+  });
+
+  it("returns a JSON error when post-create diagnostics fail", async () => {
+    let lookups = 0;
+    const response = await handlePostRepository(createValidPostRequest(), owner, env, {
+      recipeRepositories: {
+        ...createRecipeRepository([]),
+        async create() {
+          throw new Error("D1 unavailable");
+        },
+        async findByOwnerAndSlug() {
+          lookups += 1;
+          if (lookups === 1) {
+            return null;
+          }
+          throw new Error("D1 unavailable");
+        },
+      },
+    });
+
+    await expect(parseJson(response)).resolves.toEqual({
+      error: {
+        code: "internal_error",
+        message: "Failed to create repository.",
+      },
+    });
+    expect(response.status).toBe(500);
+  });
+
+  it("returns a JSON error when repository creation fails without a diagnostic match", async () => {
+    const response = await handlePostRepository(createValidPostRequest(), owner, env, {
+      recipeRepositories: {
+        ...createRecipeRepository([]),
+        async create() {
+          throw new Error("D1 unavailable");
+        },
+        async findByOwnerAndSlug() {
+          return null;
+        },
+      },
+    });
+
+    await expect(parseJson(response)).resolves.toEqual({
+      error: {
+        code: "internal_error",
+        message: "Failed to create repository.",
+      },
+    });
+    expect(response.status).toBe(500);
+  });
+});
+
+function createValidPostRequest(overrides: Record<string, unknown> = {}): Request {
+  return new Request("https://example.test/api/repos", {
+    body: JSON.stringify({
+      name: "Curry Rice",
+      slug: "curry-rice",
+      ...overrides,
+    }),
+    method: "POST",
+  });
+}
+
+function createRecipeRepository(
+  initialRepositories: CloudRecipeRepository[],
+): RecipeRepositoryMetadataRepository {
+  const repositories = [...initialRepositories];
+
+  return {
+    async create(input: CreateRecipeRepositoryInput) {
+      const repository: CloudRecipeRepository = {
+        createdAt: input.now,
+        description: input.description,
+        id: input.id,
+        license: input.license,
+        maintainer: input.ownerHandle,
+        name: input.name,
+        ownerHandle: input.ownerHandle,
+        ownerUserId: input.ownerUserId,
+        readme: input.readme,
+        servings: input.servings ?? 2,
+        slug: input.slug,
+        sourceRepositoryId: input.sourceRepositoryId,
+        tags: [],
+        updatedAt: input.now,
+        version: input.version ?? "0.1.0",
+        visibility: input.visibility ?? "public",
+      };
+      repositories.push(repository);
+      return repository;
+    },
+    async findByOwnerAndSlug(ownerHandle, slug) {
+      return (
+        repositories.find(
+          (repository) => repository.ownerHandle === ownerHandle && repository.slug === slug,
+        ) ?? null
+      );
+    },
+    async listPublic() {
+      return repositories.filter((repository) => repository.visibility === "public");
+    },
+  };
+}
+
+function createUserProfileRepository(initialProfiles: UserProfile[]): UserProfileRepository {
+  const profiles = [...initialProfiles];
+
+  return {
+    async create(input) {
+      const profile: UserProfile = {
+        authProvider: input.authProvider,
+        authSubject: input.authSubject,
+        avatarUrl: input.avatarUrl,
+        contributionVisibility: input.contributionVisibility ?? "summary_only",
+        createdAt: input.now,
+        displayName: input.displayName,
+        id: input.id,
+        updatedAt: input.now,
+        username: input.username,
+      };
+      profiles.push(profile);
+      return profile;
+    },
+    async findByAuthSubject(authProvider, authSubject) {
+      return (
+        profiles.find(
+          (profile) => profile.authProvider === authProvider && profile.authSubject === authSubject,
+        ) ?? null
+      );
+    },
+    async findByUsername(username) {
+      return profiles.find((profile) => profile.username === username) ?? null;
+    },
+  };
+}

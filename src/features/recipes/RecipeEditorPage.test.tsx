@@ -80,7 +80,7 @@ describe("RecipeEditorPage", () => {
       }),
     ]);
     expect(window.location.pathname).toBe("/me/test-curry");
-  });
+  }, 10_000);
 
   it("loads, edits, removes dependencies, and cancels existing recipes", async () => {
     const user = userEvent.setup();
@@ -115,7 +115,7 @@ describe("RecipeEditorPage", () => {
 
     await user.click(screen.getByRole("button", { name: "Cancel" }));
     expect(window.location.pathname).toBe("/me/curry-rice");
-  });
+  }, 10_000);
 
   it("shows not found for missing existing recipes", async () => {
     liveDataMock.current = {

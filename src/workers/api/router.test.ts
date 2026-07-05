@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type {
+  CloudRecipeRepository,
+  CreateRecipeRepositoryInput,
+  RecipeRepositoryMetadataRepository,
+} from "../../repositories/cloudflare-d1/D1RecipeRepository";
+import type {
   UserProfile,
   UserProfileRepository,
 } from "../../repositories/cloudflare-d1/D1UserProfileRepository";
@@ -36,6 +41,46 @@ const userProfile: UserProfile = {
   id: "profile_test",
   updatedAt: "2026-07-06T00:00:00.000Z",
   username: "test-user",
+};
+
+const otherUserProfile: UserProfile = {
+  ...userProfile,
+  authSubject: "user_test",
+  displayName: "Other User",
+  id: "profile_other",
+  username: "other-user",
+};
+
+const publicRecipeRepository: CloudRecipeRepository = {
+  createdAt: "2026-07-06T00:00:00.000Z",
+  id: "repo_public",
+  maintainer: "test-user",
+  name: "Public Curry",
+  ownerHandle: "test-user",
+  ownerUserId: "profile_test",
+  readme: "# Public Curry",
+  servings: 4,
+  slug: "public-curry",
+  tags: [],
+  updatedAt: "2026-07-06T00:00:00.000Z",
+  version: "1.0.0",
+  visibility: "public",
+};
+
+const unlistedRecipeRepository: CloudRecipeRepository = {
+  ...publicRecipeRepository,
+  id: "repo_unlisted",
+  name: "Unlisted Curry",
+  slug: "unlisted-curry",
+  visibility: "unlisted",
+};
+
+const privateRecipeRepository: CloudRecipeRepository = {
+  ...publicRecipeRepository,
+  id: "repo_private",
+  name: "Private Curry",
+  slug: "private-curry",
+  visibility: "private",
 };
 
 async function parseJson(response: Response) {
@@ -273,22 +318,213 @@ describe("Worker API router", () => {
     expect(response.status).toBe(401);
   });
 
-  it("recognizes planned public repository routes without implementing them yet", async () => {
-    const response = await handleApiRequest(
-      new Request("https://example.test/api/repos/shoma/curry-rice"),
+  it("lists public repositories without requiring login", async () => {
+    const response = await handleApiRequest(new Request("https://example.test/api/repos"), env, {
+      recipeRepositories: createRecipeRepository([
+        publicRecipeRepository,
+        unlistedRecipeRepository,
+        privateRecipeRepository,
+      ]),
+    });
+
+    await expect(parseJson(response)).resolves.toEqual({
+      repositories: [
+        expect.objectContaining({
+          id: "repo_public",
+          ownerHandle: "test-user",
+          slug: "public-curry",
+          visibility: "public",
+        }),
+      ],
+    });
+    expect(response.status).toBe(200);
+  });
+
+  it("fetches public and unlisted repositories without requiring login", async () => {
+    const recipeRepositories = createRecipeRepository([
+      publicRecipeRepository,
+      unlistedRecipeRepository,
+    ]);
+    const publicResponse = await handleApiRequest(
+      new Request("https://example.test/api/repos/test-user/public-curry"),
       env,
+      { recipeRepositories },
+    );
+    const unlistedResponse = await handleApiRequest(
+      new Request("https://example.test/api/repos/test-user/unlisted-curry"),
+      env,
+      { recipeRepositories },
+    );
+
+    await expect(parseJson(publicResponse)).resolves.toEqual({
+      repository: expect.objectContaining({
+        id: "repo_public",
+        ownerHandle: "test-user",
+        slug: "public-curry",
+        visibility: "public",
+      }),
+    });
+    await expect(parseJson(unlistedResponse)).resolves.toEqual({
+      repository: expect.objectContaining({
+        id: "repo_unlisted",
+        ownerHandle: "test-user",
+        slug: "unlisted-curry",
+        visibility: "unlisted",
+      }),
+    });
+    expect(publicResponse.status).toBe(200);
+    expect(unlistedResponse.status).toBe(200);
+  });
+
+  it("hides private repositories from unauthenticated visitors", async () => {
+    const response = await handleApiRequest(
+      new Request("https://example.test/api/repos/test-user/private-curry"),
+      env,
+      {
+        recipeRepositories: createRecipeRepository([privateRecipeRepository]),
+      },
     );
 
     await expect(parseJson(response)).resolves.toEqual({
       error: {
-        code: "not_implemented",
-        message: "Recipe repository API is not implemented yet.",
+        code: "not_found",
+        message: "Repository not found.",
       },
     });
-    expect(response.status).toBe(501);
+    expect(response.status).toBe(404);
   });
 
-  it("keeps planned repository mutation routes authenticated in the scaffold", async () => {
+  it("hides private repositories from signed-in non-owners", async () => {
+    const response = await handleApiRequest(
+      new Request("https://example.test/api/repos/test-user/private-curry", {
+        headers: {
+          authorization: "Bearer fake-session",
+        },
+      }),
+      configuredEnv,
+      {
+        ...validSessionAuth,
+        recipeRepositories: createRecipeRepository([privateRecipeRepository]),
+        userProfiles: createUserProfileRepository([otherUserProfile]),
+      },
+    );
+
+    await expect(parseJson(response)).resolves.toEqual({
+      error: {
+        code: "not_found",
+        message: "Repository not found.",
+      },
+    });
+    expect(response.status).toBe(404);
+  });
+
+  it("allows the owner to fetch a private repository", async () => {
+    const response = await handleApiRequest(
+      new Request("https://example.test/api/repos/test-user/private-curry", {
+        headers: {
+          authorization: "Bearer fake-session",
+        },
+      }),
+      configuredEnv,
+      {
+        ...validSessionAuth,
+        recipeRepositories: createRecipeRepository([privateRecipeRepository]),
+        userProfiles: createUserProfileRepository([userProfile]),
+      },
+    );
+
+    await expect(parseJson(response)).resolves.toEqual({
+      repository: expect.objectContaining({
+        id: "repo_private",
+        ownerHandle: "test-user",
+        slug: "private-curry",
+        visibility: "private",
+      }),
+    });
+    expect(response.status).toBe(200);
+  });
+
+  it("creates repository metadata for the authenticated owner", async () => {
+    const recipeRepositories = createRecipeRepository([]);
+    const response = await handleApiRequest(
+      new Request("https://example.test/api/repos", {
+        body: JSON.stringify({
+          name: "Curry Rice",
+          slug: "Curry-Rice",
+          visibility: "unlisted",
+          version: "1.2.3",
+          servings: 4,
+          readme: "# Curry Rice",
+        }),
+        headers: {
+          authorization: "Bearer fake-session",
+        },
+        method: "POST",
+      }),
+      configuredEnv,
+      {
+        ...validSessionAuth,
+        createRepositoryId: () => "repo_new",
+        now: () => new Date("2026-07-06T01:02:03.000Z"),
+        recipeRepositories,
+        userProfiles: createUserProfileRepository([userProfile]),
+      },
+    );
+
+    await expect(parseJson(response)).resolves.toEqual({
+      repository: {
+        createdAt: "2026-07-06T01:02:03.000Z",
+        id: "repo_new",
+        maintainer: "test-user",
+        name: "Curry Rice",
+        ownerHandle: "test-user",
+        readme: "# Curry Rice",
+        servings: 4,
+        slug: "curry-rice",
+        tags: [],
+        updatedAt: "2026-07-06T01:02:03.000Z",
+        version: "1.2.3",
+        visibility: "unlisted",
+      },
+    });
+    expect(response.status).toBe(201);
+    await expect(recipeRepositories.findByOwnerAndSlug("test-user", "curry-rice")).resolves.toEqual(
+      expect.objectContaining({
+        id: "repo_new",
+      }),
+    );
+  });
+
+  it("rejects duplicate repository slugs for the same owner", async () => {
+    const response = await handleApiRequest(
+      new Request("https://example.test/api/repos", {
+        body: JSON.stringify({
+          name: "Duplicate Curry",
+          slug: "public-curry",
+        }),
+        headers: {
+          authorization: "Bearer fake-session",
+        },
+        method: "POST",
+      }),
+      configuredEnv,
+      {
+        ...validSessionAuth,
+        recipeRepositories: createRecipeRepository([publicRecipeRepository]),
+        userProfiles: createUserProfileRepository([userProfile]),
+      },
+    );
+
+    await expect(parseJson(response)).resolves.toEqual({
+      error: {
+        code: "repository_already_exists",
+        message: "A repository with this owner and slug already exists.",
+      },
+    });
+    expect(response.status).toBe(409);
+  });
+
+  it("keeps repository mutation routes authenticated", async () => {
     const unauthenticated = await handleApiRequest(
       new Request("https://example.test/api/repos", { method: "POST" }),
       env,
@@ -303,16 +539,17 @@ describe("Worker API router", () => {
       configuredEnv,
       {
         ...validSessionAuth,
+        recipeRepositories: createRecipeRepository([]),
         userProfiles: createUserProfileRepository([userProfile]),
       },
     );
 
     expect(unauthenticated.status).toBe(401);
-    expect(authenticated.status).toBe(501);
+    expect(authenticated.status).toBe(400);
     await expect(parseJson(authenticated)).resolves.toEqual({
       error: {
-        code: "not_implemented",
-        message: "Recipe repository API is not implemented yet.",
+        code: "validation_failed",
+        message: "Request body must be valid JSON.",
       },
     });
   });
@@ -328,6 +565,7 @@ describe("Worker API router", () => {
       configuredEnv,
       {
         ...validSessionAuth,
+        recipeRepositories: createRecipeRepository([]),
         userProfiles: createUserProfileRepository([]),
       },
     );
@@ -352,6 +590,7 @@ describe("Worker API router", () => {
       configuredEnv,
       {
         ...validSessionAuth,
+        recipeRepositories: createRecipeRepository([]),
         userProfiles: createUserProfileRepository([userProfile]),
       },
     );
@@ -464,6 +703,47 @@ function createUserProfileRepository(initialProfiles: UserProfile[]): UserProfil
     },
     async findByUsername(username) {
       return profiles.find((profile) => profile.username === username) ?? null;
+    },
+  };
+}
+
+function createRecipeRepository(
+  initialRepositories: CloudRecipeRepository[],
+): RecipeRepositoryMetadataRepository {
+  const repositories = [...initialRepositories];
+
+  return {
+    async create(input: CreateRecipeRepositoryInput) {
+      const repository: CloudRecipeRepository = {
+        createdAt: input.now,
+        description: input.description,
+        id: input.id,
+        license: input.license,
+        maintainer: input.ownerHandle,
+        name: input.name,
+        ownerHandle: input.ownerHandle,
+        ownerUserId: input.ownerUserId,
+        readme: input.readme,
+        servings: input.servings ?? 2,
+        slug: input.slug,
+        sourceRepositoryId: input.sourceRepositoryId,
+        tags: [],
+        updatedAt: input.now,
+        version: input.version ?? "0.1.0",
+        visibility: input.visibility ?? "public",
+      };
+      repositories.push(repository);
+      return repository;
+    },
+    async findByOwnerAndSlug(ownerHandle, slug) {
+      return (
+        repositories.find(
+          (repository) => repository.ownerHandle === ownerHandle && repository.slug === slug,
+        ) ?? null
+      );
+    },
+    async listPublic() {
+      return repositories.filter((repository) => repository.visibility === "public");
     },
   };
 }

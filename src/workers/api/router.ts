@@ -10,6 +10,12 @@ import {
   requireBootstrappedProfile,
 } from "./profile";
 import {
+  handleGetRepository,
+  handleListRepositories,
+  handlePostRepository,
+  type RepositoryRouteOptions,
+} from "./repositories";
+import {
   authMisconfigured,
   jsonResponse,
   methodNotAllowed,
@@ -19,7 +25,9 @@ import {
 } from "./responses";
 import type { WorkerEnv } from "./types";
 
-export type WorkerApiOptions = ClerkAuthenticationOptions & ProfileRouteOptions;
+export type WorkerApiOptions = ClerkAuthenticationOptions &
+  ProfileRouteOptions &
+  RepositoryRouteOptions;
 
 type RouteMatcher = {
   protectedMethods?: readonly string[];
@@ -94,6 +102,39 @@ export async function handleApiRequest(
     }
 
     return handlePostMeProfile(request, sessionResult.session, env, options);
+  }
+
+  if (pathname === "/api/repos") {
+    if (request.method === "GET") {
+      return handleListRepositories(env, options);
+    }
+
+    if (request.method === "POST") {
+      const sessionResult = await requireClerkSession(request, env, "POST", options);
+      if (!sessionResult.ok) {
+        return sessionResult.response;
+      }
+
+      const profileResult = await requireBootstrappedProfile(sessionResult.session, env, options);
+      if (!profileResult.ok) {
+        return profileResult.response;
+      }
+
+      return handlePostRepository(request, profileResult.profile, env, options);
+    }
+
+    return methodNotAllowed(["GET", "POST"]);
+  }
+
+  const repositoryDetailMatch = pathname.match(/^\/api\/repos\/([^/]+)\/([^/]+)$/);
+  if (repositoryDetailMatch && request.method === "GET") {
+    const ownerHandle = decodePathSegment(repositoryDetailMatch[1]);
+    const slug = decodePathSegment(repositoryDetailMatch[2]);
+    if (!ownerHandle || !slug) {
+      return notFound(pathname);
+    }
+
+    return handleGetRepository(request, ownerHandle, slug, env, options);
   }
 
   const repoMatch = findMatcher(pathname, repoRouteMatchers);
@@ -188,6 +229,18 @@ function findMatcher(pathname: string, matchers: readonly RouteMatcher[]): Route
 function normalizePathname(pathname: string): string {
   const normalized = pathname.endsWith("/") && pathname !== "/" ? pathname.slice(0, -1) : pathname;
   return normalized;
+}
+
+function decodePathSegment(value: string | undefined): string | null {
+  if (!value) {
+    return null;
+  }
+
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return null;
+  }
 }
 
 async function requireClerkSession(
