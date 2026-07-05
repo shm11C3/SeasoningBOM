@@ -22,6 +22,23 @@ export type CreateRecipeRepositoryInput = {
   now: string;
 };
 
+export type UpdateRecipeRepositoryInput = {
+  id: string;
+  ownerUserId: string;
+  ownerHandle: string;
+  name: string;
+  slug: string;
+  description?: string;
+  visibility: RecipeRepositoryEntity["visibility"];
+  version: string;
+  servings: number;
+  readme?: string;
+  license?: string;
+  sourceRepositoryId?: string;
+  createdAt: string;
+  now: string;
+};
+
 type RecipeRepositoryRow = {
   id: string;
   owner_user_id: string;
@@ -41,8 +58,10 @@ type RecipeRepositoryRow = {
 
 export type RecipeRepositoryMetadataRepository = {
   create(input: CreateRecipeRepositoryInput): Promise<CloudRecipeRepository>;
+  delete(id: string): Promise<void>;
   findByOwnerAndSlug(ownerHandle: string, slug: string): Promise<CloudRecipeRepository | null>;
   listPublic(): Promise<CloudRecipeRepository[]>;
+  update(input: UpdateRecipeRepositoryInput): Promise<CloudRecipeRepository>;
 };
 
 const repositorySelect = `SELECT
@@ -138,6 +157,61 @@ export class D1RecipeRepository implements RecipeRepositoryMetadataRepository {
       createdAt: input.now,
       updatedAt: input.now,
     };
+  }
+
+  async update(input: UpdateRecipeRepositoryInput): Promise<CloudRecipeRepository> {
+    await this.db
+      .prepare(
+        `UPDATE recipe_repositories
+         SET name = ?,
+             slug = ?,
+             description = ?,
+             visibility = ?,
+             version = ?,
+             servings = ?,
+             readme = ?,
+             license = ?,
+             source_repository_id = ?,
+             updated_at = ?
+         WHERE id = ?`,
+      )
+      .bind(
+        input.name,
+        input.slug,
+        input.description ?? null,
+        input.visibility,
+        input.version,
+        input.servings,
+        input.readme ?? null,
+        input.license ?? null,
+        input.sourceRepositoryId ?? null,
+        input.now,
+        input.id,
+      )
+      .run();
+
+    return {
+      id: input.id,
+      ownerUserId: input.ownerUserId,
+      ownerHandle: input.ownerHandle,
+      name: input.name,
+      slug: input.slug,
+      description: input.description,
+      visibility: input.visibility,
+      version: input.version,
+      servings: input.servings,
+      tags: [],
+      license: input.license,
+      maintainer: input.ownerHandle,
+      readme: input.readme,
+      sourceRepositoryId: input.sourceRepositoryId,
+      createdAt: input.createdAt,
+      updatedAt: input.now,
+    };
+  }
+
+  async delete(id: string): Promise<void> {
+    await this.db.prepare("DELETE FROM recipe_repositories WHERE id = ?").bind(id).run();
   }
 }
 

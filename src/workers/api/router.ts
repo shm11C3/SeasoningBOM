@@ -10,8 +10,10 @@ import {
   requireBootstrappedProfile,
 } from "./profile";
 import {
+  handleDeleteRepository,
   handleGetRepository,
   handleListRepositories,
+  handlePatchRepository,
   handlePostRepository,
   type RepositoryRouteOptions,
 } from "./repositories";
@@ -127,14 +129,32 @@ export async function handleApiRequest(
   }
 
   const repositoryDetailMatch = pathname.match(/^\/api\/repos\/([^/]+)\/([^/]+)$/);
-  if (repositoryDetailMatch && request.method === "GET") {
+  if (repositoryDetailMatch && ["DELETE", "GET", "PATCH"].includes(request.method)) {
     const ownerHandle = decodePathSegment(repositoryDetailMatch[1]);
     const slug = decodePathSegment(repositoryDetailMatch[2]);
     if (!ownerHandle || !slug) {
       return notFound(pathname);
     }
 
-    return handleGetRepository(request, ownerHandle, slug, env, options);
+    if (request.method === "GET") {
+      return handleGetRepository(request, ownerHandle, slug, env, options);
+    }
+
+    const sessionResult = await requireClerkSession(request, env, request.method, options);
+    if (!sessionResult.ok) {
+      return sessionResult.response;
+    }
+
+    const profileResult = await requireBootstrappedProfile(sessionResult.session, env, options);
+    if (!profileResult.ok) {
+      return profileResult.response;
+    }
+
+    if (request.method === "PATCH") {
+      return handlePatchRepository(request, ownerHandle, slug, profileResult.profile, env, options);
+    }
+
+    return handleDeleteRepository(ownerHandle, slug, profileResult.profile, env, options);
   }
 
   const repoMatch = findMatcher(pathname, repoRouteMatchers);

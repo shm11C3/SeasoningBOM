@@ -54,8 +54,20 @@ type CreateRepositoryBody = {
   version?: unknown;
 };
 
+type UpdateRepositoryBody = CreateRepositoryBody;
+
 const repositorySlugPattern = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
 const repositoryVisibilitySet = new Set<string>(repositoryVisibilities);
+const updateRepositoryFields = [
+  "description",
+  "license",
+  "name",
+  "readme",
+  "servings",
+  "slug",
+  "visibility",
+  "version",
+];
 
 export async function handleListRepositories(
   env: WorkerEnv,
@@ -116,7 +128,7 @@ export async function handlePostRepository(
   options: RepositoryRouteOptions = {},
 ): Promise<Response> {
   const repositories = getRecipeRepository(env, options);
-  const body = await readCreateRepositoryBody(request);
+  const body = await readRepositoryBody(request);
   if (!body.ok) {
     return badRequest(body.message);
   }
@@ -169,6 +181,110 @@ export async function handlePostRepository(
     }
 
     return serverError("Failed to create repository.");
+  }
+}
+
+export async function handlePatchRepository(
+  request: Request,
+  ownerHandle: string,
+  slug: string,
+  owner: UserProfile,
+  env: WorkerEnv,
+  options: RepositoryRouteOptions = {},
+): Promise<Response> {
+  const repositories = getRecipeRepository(env, options);
+  const currentResult = await findOwnedRepository(
+    repositories,
+    ownerHandle,
+    slug,
+    owner,
+    "Failed to update repository.",
+  );
+  if (!currentResult.ok) {
+    return currentResult.response;
+  }
+
+  const body = await readRepositoryBody(request);
+  if (!body.ok) {
+    return badRequest(body.message);
+  }
+
+  const input = normalizeUpdateRepositoryBody(body.value, currentResult.repository);
+  if (!input.ok) {
+    return badRequest(input.message);
+  }
+
+  if (input.value.slug !== currentResult.repository.slug) {
+    let slugOwner: CloudRecipeRepository | null;
+    try {
+      slugOwner = await repositories.findByOwnerAndSlug(owner.username, input.value.slug);
+    } catch {
+      return serverError("Failed to update repository.");
+    }
+
+    if (slugOwner && slugOwner.id !== currentResult.repository.id) {
+      return conflict(
+        "repository_already_exists",
+        "A repository with this owner and slug already exists.",
+      );
+    }
+  }
+
+  const now = (options.now?.() ?? new Date()).toISOString();
+
+  try {
+    const repository = await repositories.update({
+      ...input.value,
+      id: currentResult.repository.id,
+      ownerHandle: currentResult.repository.ownerHandle,
+      ownerUserId: currentResult.repository.ownerUserId,
+      sourceRepositoryId: currentResult.repository.sourceRepositoryId,
+      createdAt: currentResult.repository.createdAt,
+      now,
+    });
+
+    return jsonResponse(serializeRepositoryResponse(repository));
+  } catch {
+    try {
+      const slugOwner = await repositories.findByOwnerAndSlug(owner.username, input.value.slug);
+      if (slugOwner && slugOwner.id !== currentResult.repository.id) {
+        return conflict(
+          "repository_already_exists",
+          "A repository with this owner and slug already exists.",
+        );
+      }
+    } catch {
+      return serverError("Failed to update repository.");
+    }
+
+    return serverError("Failed to update repository.");
+  }
+}
+
+export async function handleDeleteRepository(
+  ownerHandle: string,
+  slug: string,
+  owner: UserProfile,
+  env: WorkerEnv,
+  options: RepositoryRouteOptions = {},
+): Promise<Response> {
+  const repositories = getRecipeRepository(env, options);
+  const currentResult = await findOwnedRepository(
+    repositories,
+    ownerHandle,
+    slug,
+    owner,
+    "Failed to delete repository.",
+  );
+  if (!currentResult.ok) {
+    return currentResult.response;
+  }
+
+  try {
+    await repositories.delete(currentResult.repository.id);
+    return new Response(null, { status: 204 });
+  } catch {
+    return serverError("Failed to delete repository.");
   }
 }
 
@@ -243,6 +359,117 @@ function normalizeCreateRepositoryBody(body: CreateRepositoryBody):
   };
 }
 
+function normalizeUpdateRepositoryBody(
+  body: UpdateRepositoryBody,
+  current: CloudRecipeRepository,
+):
+  | {
+      ok: true;
+      value: {
+        name: string;
+        slug: string;
+        description?: string;
+        visibility: RecipeRepositoryEntity["visibility"];
+        version: string;
+        servings: number;
+        readme?: string;
+        license?: string;
+      };
+    }
+  | { message: string; ok: false } {
+  if (!updateRepositoryFields.some((field) => Object.hasOwn(body, field))) {
+    return { message: "At least one repository field must be provided.", ok: false };
+  }
+
+  const name = Object.hasOwn(body, "name") ? normalizeRequiredText(body.name, 120) : current.name;
+  if (!name) {
+    return { message: "Name must be a non-empty string up to 120 characters.", ok: false };
+  }
+
+  const slug = Object.hasOwn(body, "slug") ? normalizeRepositorySlug(body.slug) : current.slug;
+  if (!slug) {
+    return { message: "Slug must be 1-80 lowercase letters, numbers, or hyphens.", ok: false };
+  }
+
+  const visibility = Object.hasOwn(body, "visibility")
+    ? normalizeExplicitVisibility(body.visibility)
+    : current.visibility;
+  if (!visibility) {
+    return { message: "Visibility must be public, private, or unlisted.", ok: false };
+  }
+
+  const normalizedVersion = Object.hasOwn(body, "version")
+    ? normalizeOptionalText(body.version, 32)
+    : current.version;
+  if (normalizedVersion === false) {
+    return { message: "Version must be 32 characters or fewer.", ok: false };
+  }
+  const version = normalizedVersion || "0.1.0";
+
+  const servings = Object.hasOwn(body, "servings")
+    ? normalizeServings(body.servings)
+    : current.servings;
+  if (!servings) {
+    return { message: "Servings must be an integer between 1 and 999.", ok: false };
+  }
+
+  const description = Object.hasOwn(body, "description")
+    ? normalizeOptionalText(body.description, 280)
+    : (current.description ?? "");
+  if (description === false) {
+    return { message: "Description must be 280 characters or fewer.", ok: false };
+  }
+
+  const readme = Object.hasOwn(body, "readme")
+    ? normalizeOptionalText(body.readme, 20_000)
+    : (current.readme ?? "");
+  if (readme === false) {
+    return { message: "README must be 20000 characters or fewer.", ok: false };
+  }
+
+  const license = Object.hasOwn(body, "license")
+    ? normalizeOptionalText(body.license, 120)
+    : (current.license ?? "");
+  if (license === false) {
+    return { message: "License must be 120 characters or fewer.", ok: false };
+  }
+
+  return {
+    ok: true,
+    value: {
+      name,
+      slug,
+      description: description || undefined,
+      visibility,
+      version,
+      servings,
+      readme: readme || undefined,
+      license: license || undefined,
+    },
+  };
+}
+
+async function findOwnedRepository(
+  repositories: RecipeRepositoryMetadataRepository,
+  ownerHandle: string,
+  slug: string,
+  owner: UserProfile,
+  failureMessage: string,
+): Promise<{ ok: true; repository: CloudRecipeRepository } | { ok: false; response: Response }> {
+  let repository: CloudRecipeRepository | null;
+  try {
+    repository = await repositories.findByOwnerAndSlug(ownerHandle, slug);
+  } catch {
+    return { ok: false, response: serverError(failureMessage) };
+  }
+
+  if (!repository || repository.ownerUserId !== owner.id) {
+    return { ok: false, response: repositoryNotFound() };
+  }
+
+  return { ok: true, repository };
+}
+
 async function resolveOptionalProfile(
   request: Request,
   env: WorkerEnv,
@@ -285,6 +512,10 @@ function normalizeVisibility(value: unknown): RecipeRepositoryEntity["visibility
     return "public";
   }
 
+  return normalizeExplicitVisibility(value);
+}
+
+function normalizeExplicitVisibility(value: unknown): RecipeRepositoryEntity["visibility"] | null {
   return typeof value === "string" && repositoryVisibilitySet.has(value)
     ? (value as RecipeRepositoryEntity["visibility"])
     : null;
@@ -329,7 +560,7 @@ function getRecipeRepository(
   return options.recipeRepositories ?? new D1RecipeRepository(env.DB);
 }
 
-async function readCreateRepositoryBody(
+async function readRepositoryBody(
   request: Request,
 ): Promise<{ ok: true; value: CreateRepositoryBody } | { message: string; ok: false }> {
   try {
