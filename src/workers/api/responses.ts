@@ -1,5 +1,5 @@
 export type ApiErrorCode =
-  | "clerk_session_verification_not_wired"
+  | "auth_misconfigured"
   | "method_not_allowed"
   | "not_authenticated"
   | "not_found"
@@ -44,12 +44,8 @@ export function notImplemented(message: string): Response {
   return errorResponse(501, "not_implemented", message);
 }
 
-export function clerkSessionVerificationNotWired(): Response {
-  return errorResponse(
-    501,
-    "clerk_session_verification_not_wired",
-    "Clerk session verification is not wired yet.",
-  );
+export function authMisconfigured(): Response {
+  return errorResponse(500, "auth_misconfigured", "Authentication is not configured.");
 }
 
 function errorResponse(

@@ -128,6 +128,8 @@ Rules:
 - private repository / private inventory の authorization を API layer で必ず確認する。
 - Repository identity は stable User Handle の `owner + slug` を正本にする。
 - Authentication は Clerk に委譲し、Workers API は Clerk session token を検証して `user_profiles` に対応付ける。
+- Clerk session verification uses `@clerk/backend` with `CLERK_JWT_KEY` and a comma-separated `CLERK_AUTHORIZED_PARTIES` allowlist for expected frontend origins. Verified tokens must include a non-empty Clerk user subject, session id, and allowed `azp` claim.
+- Protected mutation routes require an Authorization bearer token. Clerk `__session` cookies are accepted only for protected non-mutating reads until explicit CSRF handling is added.
 - SeasoningBOM では email/password、SMS login、password reset flow を実装しない。
 
 ### `repositories/indexeddb/`

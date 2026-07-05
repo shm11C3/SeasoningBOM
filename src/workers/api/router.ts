@@ -1,5 +1,6 @@
+import { authenticateClerkRequest, type ClerkAuthenticationOptions } from "../auth/clerk";
 import {
-  clerkSessionVerificationNotWired,
+  authMisconfigured,
   jsonResponse,
   methodNotAllowed,
   notFound,
@@ -45,9 +46,11 @@ const profileRouteMatchers: RouteMatcher[] = [
   { pattern: /^\/api\/users\/[^/]+\/contributions\/[^/]+$/, publicMethods: ["GET"] },
 ];
 
-export async function handleApiRequest(request: Request, env: WorkerEnv): Promise<Response> {
-  void env;
-
+export async function handleApiRequest(
+  request: Request,
+  env: WorkerEnv,
+  authOptions: ClerkAuthenticationOptions = {},
+): Promise<Response> {
   const url = new URL(request.url);
   const pathname = normalizePathname(url.pathname);
 
@@ -56,26 +59,56 @@ export async function handleApiRequest(request: Request, env: WorkerEnv): Promis
   }
 
   if (pathname === "/api/me") {
-    return handleProtectedScaffold(request, ["GET"]);
+    return handleProtectedScaffold(
+      request,
+      env,
+      ["GET"],
+      "Profile API is not implemented yet.",
+      authOptions,
+    );
   }
 
   if (pathname === "/api/me/profile") {
-    return handleProtectedScaffold(request, ["POST"]);
+    return handleProtectedScaffold(
+      request,
+      env,
+      ["POST"],
+      "Profile bootstrap API is not implemented yet.",
+      authOptions,
+    );
   }
 
   const repoMatch = findMatcher(pathname, repoRouteMatchers);
   if (repoMatch) {
-    return handleRouteScaffold(request, repoMatch, "Recipe repository API is not implemented yet.");
+    return handleRouteScaffold(
+      request,
+      env,
+      repoMatch,
+      "Recipe repository API is not implemented yet.",
+      authOptions,
+    );
   }
 
   const inventoryMatch = findMatcher(pathname, inventoryRouteMatchers);
   if (inventoryMatch) {
-    return handleRouteScaffold(request, inventoryMatch, "Inventory API is not implemented yet.");
+    return handleRouteScaffold(
+      request,
+      env,
+      inventoryMatch,
+      "Inventory API is not implemented yet.",
+      authOptions,
+    );
   }
 
   const profileMatch = findMatcher(pathname, profileRouteMatchers);
   if (profileMatch) {
-    return handleRouteScaffold(request, profileMatch, "Profile API is not implemented yet.");
+    return handleRouteScaffold(
+      request,
+      env,
+      profileMatch,
+      "Profile API is not implemented yet.",
+      authOptions,
+    );
   }
 
   return notFound(pathname);
@@ -98,19 +131,32 @@ function handleHealth(request: Request): Response {
   });
 }
 
-function handleProtectedScaffold(request: Request, allowedMethods: readonly string[]): Response {
+async function handleProtectedScaffold(
+  request: Request,
+  env: WorkerEnv,
+  allowedMethods: readonly string[],
+  message: string,
+  authOptions: ClerkAuthenticationOptions,
+): Promise<Response> {
   if (!allowedMethods.includes(request.method)) {
     return methodNotAllowed(allowedMethods);
   }
 
-  if (!hasBearerToken(request)) {
-    return unauthorized();
+  const authResponse = await requireClerkSession(request, env, request.method, authOptions);
+  if (authResponse) {
+    return authResponse;
   }
 
-  return clerkSessionVerificationNotWired();
+  return notImplemented(message);
 }
 
-function handleRouteScaffold(request: Request, matcher: RouteMatcher, message: string): Response {
+async function handleRouteScaffold(
+  request: Request,
+  env: WorkerEnv,
+  matcher: RouteMatcher,
+  message: string,
+  authOptions: ClerkAuthenticationOptions,
+): Promise<Response> {
   const publicMethods = matcher.publicMethods ?? [];
   const protectedMethods = matcher.protectedMethods ?? [];
   const allowedMethods = [...publicMethods, ...protectedMethods];
@@ -123,11 +169,12 @@ function handleRouteScaffold(request: Request, matcher: RouteMatcher, message: s
     return notImplemented(message);
   }
 
-  if (!hasBearerToken(request)) {
-    return unauthorized();
+  const authResponse = await requireClerkSession(request, env, request.method, authOptions);
+  if (authResponse) {
+    return authResponse;
   }
 
-  return clerkSessionVerificationNotWired();
+  return notImplemented(message);
 }
 
 function findMatcher(pathname: string, matchers: readonly RouteMatcher[]): RouteMatcher | null {
@@ -139,11 +186,27 @@ function normalizePathname(pathname: string): string {
   return normalized;
 }
 
-function hasBearerToken(request: Request): boolean {
-  const authorization = request.headers.get("authorization");
-  if (!authorization?.startsWith("Bearer ")) {
-    return false;
+async function requireClerkSession(
+  request: Request,
+  env: WorkerEnv,
+  method: string,
+  authOptions: ClerkAuthenticationOptions,
+): Promise<Response | null> {
+  const result = await authenticateClerkRequest(request, env, {
+    ...authOptions,
+    tokenSources: isMutationMethod(method) ? ["authorization"] : authOptions.tokenSources,
+  });
+  if (result.ok) {
+    return null;
   }
 
-  return authorization.slice("Bearer ".length).trim().length > 0;
+  if (result.code === "missing_config") {
+    return authMisconfigured();
+  }
+
+  return unauthorized();
+}
+
+function isMutationMethod(method: string): boolean {
+  return method !== "GET" && method !== "HEAD";
 }

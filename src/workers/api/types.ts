@@ -23,8 +23,8 @@ export type D1Database = {
 
 export type WorkerEnv = {
   DB: D1Database;
+  CLERK_AUTHORIZED_PARTIES?: string;
   CLERK_JWT_KEY?: string;
-  CLERK_ISSUER?: string;
 };
 
 export type AuthenticatedUserProfile = {
