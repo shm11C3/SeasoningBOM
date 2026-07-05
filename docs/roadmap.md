@@ -89,8 +89,8 @@ Deliverables:
 
 - Cloudflare Worker API scaffold
 - D1 schema and migrations
-- GitHub OAuth login
-- users table
+- Clerk social login
+- user_profiles table
 - recipe repository CRUD
 - `owner + slug` uniqueness
 - public / private / unlisted authorization
@@ -113,7 +113,7 @@ Goal: 既存 React UI を Cloud D1 API に接続し、GitHub 風共有体験へ�
 
 Deliverables:
 
-- GitHub OAuth UI states
+- Clerk auth UI states
 - `/:owner/:repo` canonical routes
 - repository create/edit flow
 - Code / Dependencies / Security tabs backed by API

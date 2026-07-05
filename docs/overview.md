@@ -29,7 +29,7 @@ SeasoningBOM の中心にあるジョークは、**料理もまた依存関係�
 
 1. レシピを GitHub Repository 風 UI で閲覧・編集できる。
 2. Repository を stable User Handle の `owner + slug` で識別し、public / private / unlisted の visibility を扱える。
-3. GitHub OAuth でログインできる。
+3. Clerk の Google / GitHub social login でログインできる。
 4. 公開可能な Recipe Alert と本人限定の Inventory Audit を分けて表示できる。
 5. ユーザーごとの非公開 Inventory を管理できる。
 6. Star、Fork、Contribution graph によりレシピ共有サービスとして成立する。
@@ -76,9 +76,9 @@ EOL 判定、`nom audit`、SeasoningBOM 生成は、UI に依存しない純粋�
 - IndexedDB / SQLite に依存しない。
 - UI が変わっても監査結果が安定する。
 
-### 4. GitHub-like, GitHub-authenticated
+### 4. GitHub-like UI, Clerk-authenticated
 
-UI は GitHub 風で、ログインには GitHub OAuth を使います。ただし、GitHub repository そのものを読み書きするサービスではありません。
+UI は GitHub 風ですが、SeasoningBOM 自体は password を扱いません。P0 の認証は Clerk に委譲し、Google / GitHub social login のみを有効にします。GitHub は login provider の 1 つであり、SeasoningBOM の URL 所有権や認可モデルには直結させません。
 
 - `@primer/react` を採用する。
 - アイコンは最終方針が決まるまで、内部の仮 SVG アイコンを使う。

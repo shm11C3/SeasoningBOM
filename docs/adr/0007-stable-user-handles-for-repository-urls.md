@@ -2,29 +2,29 @@
 
 ## Status
 
-Accepted
+Accepted, amended by ADR 0008
 
 ## Context
 
-The Cloud D1 MVP uses GitHub OAuth for identity and GitHub-style repository URLs such as `/:owner/:repo`. GitHub usernames can change, but recipe repository URLs should not unexpectedly change or collide because a provider-side login changed.
+The Cloud D1 MVP uses Clerk-authenticated identity and GitHub-style repository URLs such as `/:owner/:repo`. External provider usernames, display names, and email addresses can change, but recipe repository URLs should not unexpectedly change or collide because provider-side profile data changed.
 
 ## Decision
 
-Use `provider + provider_user_id` as the authentication identity key.
+Use `auth_provider + auth_subject` as the authentication identity key.
 
-Use `users.username` as a SeasoningBOM User Handle:
+Use `user_profiles.username` as a SeasoningBOM User Handle:
 
-- initialized from the GitHub OAuth login at first sign-in
+- initialized from Clerk/provider profile hints or explicit user input at first sign-in
 - normalized before storage and URL use
 - globally unique inside SeasoningBOM
 - used as `owner` in `/:owner/:repo` and as `username` in `/users/:username`
-- not automatically changed in P0 when the GitHub username changes
+- not automatically changed in P0 when provider-side username, display name, or email changes
 
 Handle rename flows and old-URL redirects are deferred to P1 or later.
 
 ## Consequences
 
-- Repository URLs remain stable after a provider-side username change.
+- Repository URLs remain stable after provider-side profile changes.
 - Authorization uses `owner_user_id`, not the route handle string alone.
 - The app needs a conflict path if the desired initial handle is already reserved.
-- Docs and implementation should avoid treating live GitHub usernames as mutable repository URL ownership.
+- Docs and implementation should avoid treating live provider usernames or email addresses as mutable repository URL ownership.

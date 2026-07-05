@@ -70,7 +70,7 @@ The dev server defaults to `http://127.0.0.1:5173/`.
 | Hosting target | Cloudflare Pages |
 | API target | Cloudflare Workers |
 | Production DB target | Cloudflare D1 |
-| Auth target | GitHub OAuth |
+| Auth target | Clerk social login |
 | Local prototype storage | IndexedDB |
 | Local prototype DB wrapper | Dexie.js |
 | Local prototype React binding | `dexie-react-hooks` / `useLiveQuery` |
@@ -83,7 +83,7 @@ The dev server defaults to `http://127.0.0.1:5173/`.
 
 Cloud MVP target includes:
 
-- GitHub OAuth login
+- Clerk Google / GitHub social login
 - recipe repository CRUD with stable `owner + slug` URLs
 - public / private / unlisted visibility
 - private inventory CRUD
@@ -135,6 +135,7 @@ Architecture decisions:
 - [ADR 0005: Cloudflare D1 recipe sharing MVP](docs/adr/0005-cloudflare-d1-recipe-sharing-mvp.md)
 - [ADR 0006: Split public Recipe Alerts and private Inventory Audits](docs/adr/0006-split-recipe-alerts-and-inventory-audits.md)
 - [ADR 0007: Stable User Handles for Repository URLs](docs/adr/0007-stable-user-handles-for-repository-urls.md)
+- [ADR 0008: Clerk social authentication for the Cloud MVP](docs/adr/0008-clerk-social-auth-for-cloud-mvp.md)
 
 Requirements:
 

@@ -32,7 +32,7 @@
 | DB | Cloudflare D1 |
 | API | Cloudflare Workers |
 | Hosting | Cloudflare Pages |
-| 認証 | GitHub OAuth を優先 |
+| 認証 | P0 は Clerk の Google / GitHub social login のみ |
 | Repository 公開範囲 | public / private / unlisted |
 | SBOM 出力 | SeasoningBOM JSON |
 | Contribution | 調理、レシピ更新、EOL救済などで草を生やす |
@@ -66,7 +66,7 @@
 
 | ID | 要件 |
 |---|---|
-| P0-1 | ユーザーは GitHub OAuth でログインできる |
+| P0-1 | ユーザーは Clerk の Google / GitHub social login でログインできる |
 | P0-2 | ユーザーは Recipe Repository を作成、編集、削除できる |
 | P0-3 | Repository には owner、name、slug、description、version、visibility を設定できる |
 | P0-4 | Repository は public / private / unlisted の公開範囲を持てる |
@@ -547,25 +547,27 @@ Pinned repositories
 
 ## 15. D1 テーブル案
 
-### 15.1 users
+### 15.1 user_profiles
 
 ```sql
-CREATE TABLE users (
+CREATE TABLE user_profiles (
   id TEXT PRIMARY KEY,
-  provider TEXT NOT NULL,
-  provider_user_id TEXT NOT NULL,
+  auth_provider TEXT NOT NULL,
+  auth_subject TEXT NOT NULL,
   username TEXT NOT NULL,
   display_name TEXT,
   avatar_url TEXT,
   contribution_visibility TEXT NOT NULL DEFAULT 'summary_only',
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
-  UNIQUE(provider, provider_user_id),
+  UNIQUE(auth_provider, auth_subject),
   UNIQUE(username)
 );
 ```
 
-`username` は URL に使う SeasoningBOM 内の stable User Handle とする。P0 では GitHub OAuth 初回ログイン時の login から正規化して予約し、GitHub 側の username 変更に自動追従しない。認証上の安定キーは `provider + provider_user_id` とする。
+`username` は URL に使う SeasoningBOM 内の stable User Handle とする。P0 では Clerk/provider profile の表示名・username・email local-part などから候補を作るか、ユーザー入力で予約する。provider 側の表示名・username・email 変更に自動追従しない。認証上の安定キーは `auth_provider = "clerk"` と `auth_subject = Clerk user id` とする。
+
+Clerk が sign-in、sessions、account linking を所有する。SeasoningBOM は password、password reset、SMS login を持たず、アプリ側の所有権・認可・URL identity だけを `user_profiles` に保存する。
 
 ### 15.2 recipe_repositories
 
@@ -584,7 +586,7 @@ CREATE TABLE recipe_repositories (
   source_repository_id TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
-  FOREIGN KEY(owner_user_id) REFERENCES users(id),
+  FOREIGN KEY(owner_user_id) REFERENCES user_profiles(id),
   FOREIGN KEY(source_repository_id) REFERENCES recipe_repositories(id),
   UNIQUE(owner_user_id, slug)
 );
@@ -638,7 +640,7 @@ CREATE TABLE inventory_items (
   hazardous INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
-  FOREIGN KEY(user_id) REFERENCES users(id)
+  FOREIGN KEY(user_id) REFERENCES user_profiles(id)
 );
 ```
 
@@ -650,7 +652,7 @@ CREATE TABLE repository_stars (
   repository_id TEXT NOT NULL,
   created_at TEXT NOT NULL,
   PRIMARY KEY(user_id, repository_id),
-  FOREIGN KEY(user_id) REFERENCES users(id),
+  FOREIGN KEY(user_id) REFERENCES user_profiles(id),
   FOREIGN KEY(repository_id) REFERENCES recipe_repositories(id)
 );
 ```
@@ -668,7 +670,7 @@ CREATE TABLE contribution_events (
   contribution_count INTEGER NOT NULL DEFAULT 1,
   visibility TEXT NOT NULL DEFAULT 'summary_only',
   metadata_json TEXT NOT NULL DEFAULT '{}',
-  FOREIGN KEY(user_id) REFERENCES users(id),
+  FOREIGN KEY(user_id) REFERENCES user_profiles(id),
   FOREIGN KEY(repository_id) REFERENCES recipe_repositories(id)
 );
 
@@ -691,7 +693,7 @@ CREATE TABLE cooking_logs (
   notes TEXT,
   cooked_at TEXT NOT NULL,
   created_at TEXT NOT NULL,
-  FOREIGN KEY(user_id) REFERENCES users(id),
+  FOREIGN KEY(user_id) REFERENCES user_profiles(id),
   FOREIGN KEY(repository_id) REFERENCES recipe_repositories(id)
 );
 ```
@@ -701,11 +703,11 @@ CREATE TABLE cooking_logs (
 ### 16.1 Auth
 
 ```text
-GET  /api/auth/github/start
-GET  /api/auth/github/callback
-POST /api/auth/logout
 GET  /api/me
+POST /api/me/profile
 ```
+
+Sign-in / sign-up / sign-out UI は Clerk の prebuilt UI または hosted UI に委譲する。Workers API は protected endpoint ごとに Clerk session token を検証し、`GET /api/me` では current Clerk user に対応する `user_profiles` と権限情報を返す。`POST /api/me/profile` は初回 sign-in 後の User Handle 予約・profile 初期化に使うため、valid Clerk session だが `user_profiles` がまだ存在しない状態だけを許可する bootstrap endpoint として扱う。その他の private data endpoint は `user_profiles` が存在しなければ拒否する。
 
 ### 16.2 Repository
 
@@ -822,8 +824,8 @@ And 詳細な Cooking Log と Inventory 由来イベントは表示されない
 ## 18. 最小実装順
 
 1. Cloudflare Workers + D1 のプロジェクトを作る
-2. users / recipe_repositories / recipe_components / ingredient_dependencies を作る
-3. GitHub OAuth 認証を実装する
+2. user_profiles / recipe_repositories / recipe_components / ingredient_dependencies を作る
+3. Clerk social login と Workers API の session verification を実装する
 4. Repository 作成、編集、閲覧を実装する
 5. Public / Private / Unlisted のアクセス制御を実装する
 6. GitHub 風 Repository 詳細 UI を作る

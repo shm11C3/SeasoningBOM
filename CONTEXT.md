@@ -13,8 +13,8 @@ The user that owns a **Recipe Repository** and provides the first part of the re
 _Avoid_: Maintainer when referring to access ownership
 
 **User Handle**:
-The stable SeasoningBOM username reserved for a user and used in URLs such as `/:owner/:repo` and `/users/:username`. P0 initializes it from the GitHub OAuth login, stores it normalized, and does not automatically change it if the GitHub username changes.
-_Avoid_: Live GitHub username when referring to stable SeasoningBOM URLs
+The stable SeasoningBOM username reserved for a user and used in URLs such as `/:owner/:repo` and `/users/:username`. P0 initializes it from Clerk/provider profile hints or explicit user input, stores it normalized, and does not automatically change it if the provider-side username, display name, or email changes.
+_Avoid_: Live provider username or email address when referring to stable SeasoningBOM URLs
 
 **Repository Slug**:
 The URL-safe repository name within a single owner's namespace. A slug can be reused by different owners, so it is never globally unique by itself.
