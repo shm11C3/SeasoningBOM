@@ -7,6 +7,7 @@ export type ApiErrorCode =
   | "not_implemented"
   | "profile_already_exists"
   | "profile_not_initialized"
+  | "repository_already_exists"
   | "username_reserved"
   | "validation_failed";
 
@@ -35,6 +36,10 @@ export function notFound(pathname: string): Response {
   return errorResponse(404, "not_found", `No API route matches ${pathname}.`);
 }
 
+export function repositoryNotFound(): Response {
+  return errorResponse(404, "not_found", "Repository not found.");
+}
+
 export function methodNotAllowed(allowedMethods: readonly string[]): Response {
   return errorResponse(405, "method_not_allowed", "This HTTP method is not allowed.", {
     Allow: allowedMethods.join(", "),
@@ -58,7 +63,7 @@ export function badRequest(message: string): Response {
 }
 
 export function conflict(
-  code: "profile_already_exists" | "username_reserved",
+  code: "profile_already_exists" | "repository_already_exists" | "username_reserved",
   message: string,
 ): Response {
   return errorResponse(409, code, message);

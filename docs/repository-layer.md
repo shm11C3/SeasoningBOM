@@ -131,6 +131,7 @@ Production rules:
 - `owner` in routes is the stable SeasoningBOM User Handle stored as `user_profiles.username`.
 - User Handles cannot use app route roots such as `api`, `backup`, `eol`, `inventory`, `new`, `repositories`, `security`, or `users`.
 - `user_profiles` is created through the profile bootstrap endpoint after a valid Clerk session.
+- D1 Repository metadata list/detail/create is handled by `D1RecipeRepository` and Workers API handlers.
 - private Repository reads require the owner.
 - unlisted Repository reads require the exact URL but are not listed publicly.
 - `inventory_items` are always scoped to the authenticated user.
