@@ -1,4 +1,14 @@
-import { authenticateClerkRequest, type ClerkAuthenticationOptions } from "../auth/clerk";
+import {
+  authenticateClerkRequest,
+  type ClerkAuthenticationOptions,
+  type ClerkSession,
+} from "../auth/clerk";
+import {
+  handleGetMe,
+  handlePostMeProfile,
+  type ProfileRouteOptions,
+  requireBootstrappedProfile,
+} from "./profile";
 import {
   authMisconfigured,
   jsonResponse,
@@ -8,6 +18,8 @@ import {
   unauthorized,
 } from "./responses";
 import type { WorkerEnv } from "./types";
+
+export type WorkerApiOptions = ClerkAuthenticationOptions & ProfileRouteOptions;
 
 type RouteMatcher = {
   protectedMethods?: readonly string[];
@@ -49,7 +61,7 @@ const profileRouteMatchers: RouteMatcher[] = [
 export async function handleApiRequest(
   request: Request,
   env: WorkerEnv,
-  authOptions: ClerkAuthenticationOptions = {},
+  options: WorkerApiOptions = {},
 ): Promise<Response> {
   const url = new URL(request.url);
   const pathname = normalizePathname(url.pathname);
@@ -59,23 +71,29 @@ export async function handleApiRequest(
   }
 
   if (pathname === "/api/me") {
-    return handleProtectedScaffold(
-      request,
-      env,
-      ["GET"],
-      "Profile API is not implemented yet.",
-      authOptions,
-    );
+    if (request.method !== "GET") {
+      return methodNotAllowed(["GET"]);
+    }
+
+    const sessionResult = await requireClerkSession(request, env, "GET", options);
+    if (!sessionResult.ok) {
+      return sessionResult.response;
+    }
+
+    return handleGetMe(sessionResult.session, env, options);
   }
 
   if (pathname === "/api/me/profile") {
-    return handleProtectedScaffold(
-      request,
-      env,
-      ["POST"],
-      "Profile bootstrap API is not implemented yet.",
-      authOptions,
-    );
+    if (request.method !== "POST") {
+      return methodNotAllowed(["POST"]);
+    }
+
+    const sessionResult = await requireClerkSession(request, env, "POST", options);
+    if (!sessionResult.ok) {
+      return sessionResult.response;
+    }
+
+    return handlePostMeProfile(request, sessionResult.session, env, options);
   }
 
   const repoMatch = findMatcher(pathname, repoRouteMatchers);
@@ -85,7 +103,7 @@ export async function handleApiRequest(
       env,
       repoMatch,
       "Recipe repository API is not implemented yet.",
-      authOptions,
+      options,
     );
   }
 
@@ -96,7 +114,7 @@ export async function handleApiRequest(
       env,
       inventoryMatch,
       "Inventory API is not implemented yet.",
-      authOptions,
+      options,
     );
   }
 
@@ -107,7 +125,7 @@ export async function handleApiRequest(
       env,
       profileMatch,
       "Profile API is not implemented yet.",
-      authOptions,
+      options,
     );
   }
 
@@ -131,31 +149,12 @@ function handleHealth(request: Request): Response {
   });
 }
 
-async function handleProtectedScaffold(
-  request: Request,
-  env: WorkerEnv,
-  allowedMethods: readonly string[],
-  message: string,
-  authOptions: ClerkAuthenticationOptions,
-): Promise<Response> {
-  if (!allowedMethods.includes(request.method)) {
-    return methodNotAllowed(allowedMethods);
-  }
-
-  const authResponse = await requireClerkSession(request, env, request.method, authOptions);
-  if (authResponse) {
-    return authResponse;
-  }
-
-  return notImplemented(message);
-}
-
 async function handleRouteScaffold(
   request: Request,
   env: WorkerEnv,
   matcher: RouteMatcher,
   message: string,
-  authOptions: ClerkAuthenticationOptions,
+  options: WorkerApiOptions,
 ): Promise<Response> {
   const publicMethods = matcher.publicMethods ?? [];
   const protectedMethods = matcher.protectedMethods ?? [];
@@ -169,9 +168,14 @@ async function handleRouteScaffold(
     return notImplemented(message);
   }
 
-  const authResponse = await requireClerkSession(request, env, request.method, authOptions);
-  if (authResponse) {
-    return authResponse;
+  const sessionResult = await requireClerkSession(request, env, request.method, options);
+  if (!sessionResult.ok) {
+    return sessionResult.response;
+  }
+
+  const profileResult = await requireBootstrappedProfile(sessionResult.session, env, options);
+  if (!profileResult.ok) {
+    return profileResult.response;
   }
 
   return notImplemented(message);
@@ -191,20 +195,20 @@ async function requireClerkSession(
   env: WorkerEnv,
   method: string,
   authOptions: ClerkAuthenticationOptions,
-): Promise<Response | null> {
+): Promise<{ ok: true; session: ClerkSession } | { ok: false; response: Response }> {
   const result = await authenticateClerkRequest(request, env, {
     ...authOptions,
     tokenSources: isMutationMethod(method) ? ["authorization"] : authOptions.tokenSources,
   });
   if (result.ok) {
-    return null;
+    return result;
   }
 
   if (result.code === "missing_config") {
-    return authMisconfigured();
+    return { ok: false, response: authMisconfigured() };
   }
 
-  return unauthorized();
+  return { ok: false, response: unauthorized() };
 }
 
 function isMutationMethod(method: string): boolean {

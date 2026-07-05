@@ -1,4 +1,8 @@
 import { describe, expect, it } from "vitest";
+import type {
+  UserProfile,
+  UserProfileRepository,
+} from "../../repositories/cloudflare-d1/D1UserProfileRepository";
 import type { ClerkAuthenticationOptions } from "../auth/clerk";
 import worker from "./index";
 import { handleApiRequest } from "./router";
@@ -21,6 +25,17 @@ const validSessionAuth: ClerkAuthenticationOptions = {
       sid: "sess_test",
       sub: "user_test",
     }) as Awaited<ReturnType<NonNullable<ClerkAuthenticationOptions["verifyToken"]>>>,
+};
+
+const userProfile: UserProfile = {
+  authProvider: "clerk",
+  authSubject: "user_test",
+  contributionVisibility: "summary_only",
+  createdAt: "2026-07-06T00:00:00.000Z",
+  displayName: "Test User",
+  id: "profile_test",
+  updatedAt: "2026-07-06T00:00:00.000Z",
+  username: "test-user",
 };
 
 async function parseJson(response: Response) {
@@ -109,7 +124,7 @@ describe("Worker API router", () => {
     expect(response.status).toBe(500);
   });
 
-  it("recognizes authenticated profile routes without implementing profile lookup yet", async () => {
+  it("returns the authenticated user profile", async () => {
     const response = await handleApiRequest(
       new Request("https://example.test/api/me", {
         headers: {
@@ -117,19 +132,75 @@ describe("Worker API router", () => {
         },
       }),
       configuredEnv,
-      validSessionAuth,
+      {
+        ...validSessionAuth,
+        userProfiles: createUserProfileRepository([userProfile]),
+      },
+    );
+
+    await expect(parseJson(response)).resolves.toEqual({
+      profile: {
+        contributionVisibility: "summary_only",
+        createdAt: "2026-07-06T00:00:00.000Z",
+        displayName: "Test User",
+        id: "profile_test",
+        updatedAt: "2026-07-06T00:00:00.000Z",
+        username: "test-user",
+      },
+    });
+    expect(response.status).toBe(200);
+  });
+
+  it("rejects unsupported methods for /api/me", async () => {
+    const response = await handleApiRequest(
+      new Request("https://example.test/api/me", {
+        headers: {
+          authorization: "Bearer fake-session",
+        },
+        method: "POST",
+      }),
+      configuredEnv,
+      {
+        ...validSessionAuth,
+        userProfiles: createUserProfileRepository([userProfile]),
+      },
     );
 
     await expect(parseJson(response)).resolves.toEqual({
       error: {
-        code: "not_implemented",
-        message: "Profile API is not implemented yet.",
+        code: "method_not_allowed",
+        message: "This HTTP method is not allowed.",
       },
     });
-    expect(response.status).toBe(501);
+    expect(response.status).toBe(405);
+    expect(response.headers.get("allow")).toBe("GET");
+  });
+
+  it("returns a bootstrap hint when the authenticated user has no profile", async () => {
+    const response = await handleApiRequest(
+      new Request("https://example.test/api/me", {
+        headers: {
+          authorization: "Bearer fake-session",
+        },
+      }),
+      configuredEnv,
+      {
+        ...validSessionAuth,
+        userProfiles: createUserProfileRepository([]),
+      },
+    );
+
+    await expect(parseJson(response)).resolves.toEqual({
+      error: {
+        code: "profile_not_initialized",
+        message: "Create a profile before accessing this endpoint.",
+      },
+    });
+    expect(response.status).toBe(404);
   });
 
   it("keeps profile bootstrap behind POST and a valid Clerk session", async () => {
+    const userProfiles = createUserProfileRepository([]);
     const getResponse = await handleApiRequest(
       new Request("https://example.test/api/me/profile", {
         headers: {
@@ -137,28 +208,69 @@ describe("Worker API router", () => {
         },
       }),
       configuredEnv,
-      validSessionAuth,
+      {
+        ...validSessionAuth,
+        userProfiles,
+      },
     );
     const postResponse = await handleApiRequest(
       new Request("https://example.test/api/me/profile", {
+        body: JSON.stringify({
+          displayName: "New User",
+          username: "New-User",
+        }),
         headers: {
           authorization: "Bearer fake-session",
         },
         method: "POST",
       }),
       configuredEnv,
-      validSessionAuth,
+      {
+        ...validSessionAuth,
+        createProfileId: () => "profile_new",
+        now: () => new Date("2026-07-06T01:02:03.000Z"),
+        userProfiles,
+      },
     );
 
     expect(getResponse.status).toBe(405);
     expect(getResponse.headers.get("allow")).toBe("POST");
-    expect(postResponse.status).toBe(501);
+    expect(postResponse.status).toBe(201);
     await expect(parseJson(postResponse)).resolves.toEqual({
-      error: {
-        code: "not_implemented",
-        message: "Profile bootstrap API is not implemented yet.",
+      profile: {
+        contributionVisibility: "summary_only",
+        createdAt: "2026-07-06T01:02:03.000Z",
+        displayName: "New User",
+        id: "profile_new",
+        updatedAt: "2026-07-06T01:02:03.000Z",
+        username: "new-user",
       },
     });
+  });
+
+  it("requires bearer auth for profile bootstrap", async () => {
+    const response = await handleApiRequest(
+      new Request("https://example.test/api/me/profile", {
+        body: JSON.stringify({ username: "new-user" }),
+        headers: {
+          cookie: "__session=fake-session",
+        },
+        method: "POST",
+      }),
+      configuredEnv,
+      {
+        ...validSessionAuth,
+        userProfiles: createUserProfileRepository([]),
+      },
+    );
+
+    await expect(parseJson(response)).resolves.toEqual({
+      error: {
+        code: "not_authenticated",
+        message: "Sign in with Clerk to access this endpoint.",
+      },
+    });
+    expect(response.status).toBe(401);
   });
 
   it("recognizes planned public repository routes without implementing them yet", async () => {
@@ -189,7 +301,10 @@ describe("Worker API router", () => {
         method: "POST",
       }),
       configuredEnv,
-      validSessionAuth,
+      {
+        ...validSessionAuth,
+        userProfiles: createUserProfileRepository([userProfile]),
+      },
     );
 
     expect(unauthenticated.status).toBe(401);
@@ -202,6 +317,30 @@ describe("Worker API router", () => {
     });
   });
 
+  it("requires profile bootstrap before planned private routes", async () => {
+    const response = await handleApiRequest(
+      new Request("https://example.test/api/repos", {
+        headers: {
+          authorization: "Bearer fake-session",
+        },
+        method: "POST",
+      }),
+      configuredEnv,
+      {
+        ...validSessionAuth,
+        userProfiles: createUserProfileRepository([]),
+      },
+    );
+
+    await expect(parseJson(response)).resolves.toEqual({
+      error: {
+        code: "profile_not_initialized",
+        message: "Create a profile before accessing this endpoint.",
+      },
+    });
+    expect(response.status).toBe(404);
+  });
+
   it("requires bearer auth instead of Clerk cookies for mutation routes", async () => {
     const response = await handleApiRequest(
       new Request("https://example.test/api/repos", {
@@ -211,7 +350,10 @@ describe("Worker API router", () => {
         method: "POST",
       }),
       configuredEnv,
-      validSessionAuth,
+      {
+        ...validSessionAuth,
+        userProfiles: createUserProfileRepository([userProfile]),
+      },
     );
 
     await expect(parseJson(response)).resolves.toEqual({
@@ -231,16 +373,23 @@ describe("Worker API router", () => {
         },
       }),
       configuredEnv,
-      validSessionAuth,
+      {
+        ...validSessionAuth,
+        userProfiles: createUserProfileRepository([userProfile]),
+      },
     );
 
     await expect(parseJson(response)).resolves.toEqual({
-      error: {
-        code: "not_implemented",
-        message: "Profile API is not implemented yet.",
+      profile: {
+        contributionVisibility: "summary_only",
+        createdAt: "2026-07-06T00:00:00.000Z",
+        displayName: "Test User",
+        id: "profile_test",
+        updatedAt: "2026-07-06T00:00:00.000Z",
+        username: "test-user",
       },
     });
-    expect(response.status).toBe(501);
+    expect(response.status).toBe(200);
   });
 
   it("keeps private inventory routes authenticated in the scaffold", async () => {
@@ -255,7 +404,10 @@ describe("Worker API router", () => {
         },
       }),
       configuredEnv,
-      validSessionAuth,
+      {
+        ...validSessionAuth,
+        userProfiles: createUserProfileRepository([userProfile]),
+      },
     );
 
     expect(unauthenticated.status).toBe(401);
@@ -283,3 +435,35 @@ describe("Worker API router", () => {
     expect(response.status).toBe(501);
   });
 });
+
+function createUserProfileRepository(initialProfiles: UserProfile[]): UserProfileRepository {
+  const profiles = [...initialProfiles];
+
+  return {
+    async create(input) {
+      const profile: UserProfile = {
+        authProvider: input.authProvider,
+        authSubject: input.authSubject,
+        avatarUrl: input.avatarUrl,
+        contributionVisibility: input.contributionVisibility ?? "summary_only",
+        createdAt: input.now,
+        displayName: input.displayName,
+        id: input.id,
+        updatedAt: input.now,
+        username: input.username,
+      };
+      profiles.push(profile);
+      return profile;
+    },
+    async findByAuthSubject(authProvider, authSubject) {
+      return (
+        profiles.find(
+          (profile) => profile.authProvider === authProvider && profile.authSubject === authSubject,
+        ) ?? null
+      );
+    },
+    async findByUsername(username) {
+      return profiles.find((profile) => profile.username === username) ?? null;
+    },
+  };
+}

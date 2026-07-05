@@ -106,7 +106,8 @@ Current implementation checkpoint:
 - `migrations/0001_cloud_mvp.sql` defines the initial Cloud D1 MVP tables and indexes.
 - `src/workers/api/` contains the Worker fetch entrypoint, health route, planned API route scaffold, and JSON error responses.
 - `src/workers/auth/clerk.ts` verifies Clerk session tokens with `@clerk/backend`, `CLERK_JWT_KEY`, and `CLERK_AUTHORIZED_PARTIES`, requiring a user subject, session id, and allowed `azp`.
-- Protected endpoints reject missing or invalid sessions before reaching planned handlers. Mutation routes require bearer tokens; `__session` cookies are limited to protected non-mutating reads. Profile bootstrap, user profile lookup, and CRUD endpoints are still not implemented.
+- `GET /api/me` and `POST /api/me/profile` are wired to D1 `user_profiles` through `D1UserProfileRepository`.
+- Protected endpoints reject missing or invalid sessions before reaching planned handlers. Mutation routes require bearer tokens; `__session` cookies are limited to protected non-mutating reads. Recipe, inventory, star, fork, and contribution CRUD endpoints are still not implemented.
 
 Exit criteria:
 
