@@ -64,7 +64,7 @@ Delivered:
 
 Goal: 新しい Cloud D1 要件を docs / ADR / implementation plan に統合する。
 
-Status: current phase
+Status: completed
 
 Deliverables:
 
@@ -85,6 +85,8 @@ Exit criteria:
 
 Goal: hosted recipe sharing service の backend を作る。
 
+Status: current phase
+
 Deliverables:
 
 - Cloudflare Worker API scaffold
@@ -98,6 +100,12 @@ Deliverables:
 - private inventory CRUD
 - Star / Fork primitives
 - contribution events and cooking logs
+
+Current implementation checkpoint:
+
+- `migrations/0001_cloud_mvp.sql` defines the initial Cloud D1 MVP tables and indexes.
+- `src/workers/api/` contains the Worker fetch entrypoint, health route, planned API route scaffold, and JSON error responses.
+- Clerk session verification is intentionally not wired yet. Protected endpoints reject missing bearer tokens and do not accept bearer tokens as authenticated until the Clerk verification helper is implemented.
 
 Exit criteria:
 
