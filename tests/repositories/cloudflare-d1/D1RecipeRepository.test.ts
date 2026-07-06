@@ -127,6 +127,34 @@ describe("D1RecipeRepository", () => {
     });
   });
 
+  it("persists source repository references for forks", async () => {
+    const source = await recipes.create({
+      id: "repo_source",
+      name: "Original Curry",
+      now: "2026-07-06T01:02:03.000Z",
+      ownerHandle: "test-user",
+      ownerUserId: "profile_test",
+      slug: "original-curry",
+    });
+
+    await recipes.create({
+      id: "repo_fork",
+      name: "Original Curry",
+      now: "2026-07-06T02:03:04.000Z",
+      ownerHandle: "test-user",
+      ownerUserId: "profile_test",
+      slug: "forked-curry",
+      sourceRepositoryId: source.id,
+    });
+
+    await expect(recipes.findByOwnerAndSlug("test-user", "forked-curry")).resolves.toEqual(
+      expect.objectContaining({
+        id: "repo_fork",
+        sourceRepositoryId: "repo_source",
+      }),
+    );
+  });
+
   it("deletes repository metadata", async () => {
     await recipes.create({
       id: "repo_test",
