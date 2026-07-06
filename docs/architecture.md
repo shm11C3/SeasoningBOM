@@ -14,7 +14,7 @@ Cloud D1 MVP では Cloudflare Pages でフロントエンドを配信し、Clou
 | UI library | `@primer/react` |
 | Icons | Temporary internal SVG placeholders |
 | Hosting | Cloudflare Pages |
-| API | Cloudflare Workers |
+| API | Cloudflare Workers + Hono |
 | Production DB | Cloudflare D1 |
 | Auth | Clerk social login |
 | Local prototype storage | IndexedDB |
@@ -113,7 +113,7 @@ Rules:
 
 ### `repositories/cloudflare-d1/` / `workers/`
 
-Cloudflare Workers API と D1 向けの production 実装を置きます。
+Cloudflare Workers API と D1 向けの production 実装を置きます。Workers API の routing は Hono で定義し、route handler は D1 repository と auth helper に処理を委譲します。
 
 Examples:
 

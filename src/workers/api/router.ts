@@ -1,3 +1,5 @@
+import { Hono } from "hono";
+import type { UserProfile } from "../../repositories/cloudflare-d1/D1UserProfileRepository";
 import {
   authenticateClerkRequest,
   type ClerkAuthenticationOptions,
@@ -31,167 +33,260 @@ export type WorkerApiOptions = ClerkAuthenticationOptions &
   ProfileRouteOptions &
   RepositoryRouteOptions;
 
-type RouteMatcher = {
-  protectedMethods?: readonly string[];
-  publicMethods?: readonly string[];
-  pattern: RegExp;
+type WorkerApiHonoEnv = {
+  Bindings: WorkerEnv;
 };
 
-const repoRouteMatchers: RouteMatcher[] = [
-  { pattern: /^\/api\/repos$/, protectedMethods: ["POST"], publicMethods: ["GET"] },
+type ScaffoldRoute = {
+  message: string;
+  path: string;
+  protectedMethods?: readonly string[];
+  publicMethods?: readonly string[];
+};
+
+type HeadMethodRoute = {
+  allowedMethods: readonly string[];
+  path: string;
+};
+
+const coreRoutes = {
+  me: { allowedMethods: ["GET"], path: "/api/me" },
+  meProfile: { allowedMethods: ["POST"], path: "/api/me/profile" },
+  repositories: { allowedMethods: ["GET", "POST"], path: "/api/repos" },
+  repositoryDetail: {
+    allowedMethods: ["GET", "PATCH", "DELETE"],
+    path: "/api/repos/:owner/:repo",
+  },
+} as const satisfies Record<string, HeadMethodRoute>;
+
+const repoScaffoldRoutes: ScaffoldRoute[] = [
   {
-    pattern: /^\/api\/repos\/[^/]+\/[^/]+$/,
-    protectedMethods: ["PATCH", "DELETE"],
+    message: "Recipe repository API is not implemented yet.",
+    path: "/api/repos/:owner/:repo/star",
+    protectedMethods: ["POST", "DELETE"],
+  },
+  {
+    message: "Recipe repository API is not implemented yet.",
+    path: "/api/repos/:owner/:repo/fork",
+    protectedMethods: ["POST"],
+  },
+  {
+    message: "Recipe repository API is not implemented yet.",
+    path: "/api/repos/:owner/:repo/bom",
     publicMethods: ["GET"],
   },
-  { pattern: /^\/api\/repos\/[^/]+\/[^/]+\/star$/, protectedMethods: ["POST", "DELETE"] },
-  { pattern: /^\/api\/repos\/[^/]+\/[^/]+\/fork$/, protectedMethods: ["POST"] },
-  { pattern: /^\/api\/repos\/[^/]+\/[^/]+\/bom$/, publicMethods: ["GET"] },
-  { pattern: /^\/api\/repos\/[^/]+\/[^/]+\/dependencies$/, publicMethods: ["GET"] },
-  { pattern: /^\/api\/repos\/[^/]+\/[^/]+\/security$/, publicMethods: ["GET"] },
-  { pattern: /^\/api\/repos\/[^/]+\/[^/]+\/audit$/, protectedMethods: ["POST"] },
   {
-    pattern: /^\/api\/repos\/[^/]+\/[^/]+\/cooking-logs$/,
+    message: "Recipe repository API is not implemented yet.",
+    path: "/api/repos/:owner/:repo/dependencies",
+    publicMethods: ["GET"],
+  },
+  {
+    message: "Recipe repository API is not implemented yet.",
+    path: "/api/repos/:owner/:repo/security",
+    publicMethods: ["GET"],
+  },
+  {
+    message: "Recipe repository API is not implemented yet.",
+    path: "/api/repos/:owner/:repo/audit",
+    protectedMethods: ["POST"],
+  },
+  {
+    message: "Recipe repository API is not implemented yet.",
+    path: "/api/repos/:owner/:repo/cooking-logs",
     protectedMethods: ["POST"],
     publicMethods: ["GET"],
   },
 ];
 
-const inventoryRouteMatchers: RouteMatcher[] = [
-  { pattern: /^\/api\/inventory$/, protectedMethods: ["GET", "POST"] },
-  { pattern: /^\/api\/inventory\/[^/]+$/, protectedMethods: ["PATCH", "DELETE"] },
+const inventoryScaffoldRoutes: ScaffoldRoute[] = [
+  {
+    message: "Inventory API is not implemented yet.",
+    path: "/api/inventory",
+    protectedMethods: ["GET", "POST"],
+  },
+  {
+    message: "Inventory API is not implemented yet.",
+    path: "/api/inventory/:id",
+    protectedMethods: ["PATCH", "DELETE"],
+  },
 ];
 
-const profileRouteMatchers: RouteMatcher[] = [
-  { pattern: /^\/api\/users\/[^/]+\/profile$/, publicMethods: ["GET"] },
-  { pattern: /^\/api\/users\/[^/]+\/contributions$/, publicMethods: ["GET"] },
-  { pattern: /^\/api\/users\/[^/]+\/contributions\/[^/]+$/, publicMethods: ["GET"] },
+const profileScaffoldRoutes: ScaffoldRoute[] = [
+  {
+    message: "Profile API is not implemented yet.",
+    path: "/api/users/:username/profile",
+    publicMethods: ["GET"],
+  },
+  {
+    message: "Profile API is not implemented yet.",
+    path: "/api/users/:username/contributions",
+    publicMethods: ["GET"],
+  },
+  {
+    message: "Profile API is not implemented yet.",
+    path: "/api/users/:username/contributions/:date",
+    publicMethods: ["GET"],
+  },
+];
+
+const headMethodRoutes: HeadMethodRoute[] = [
+  ...Object.values(coreRoutes),
+  ...toHeadMethodRoutes(repoScaffoldRoutes),
+  ...toHeadMethodRoutes(inventoryScaffoldRoutes),
+  ...toHeadMethodRoutes(profileScaffoldRoutes),
 ];
 
 export async function handleApiRequest(
   request: Request,
   env: WorkerEnv,
-  options: WorkerApiOptions = {},
+  options?: WorkerApiOptions,
 ): Promise<Response> {
-  const url = new URL(request.url);
-  const pathname = normalizePathname(url.pathname);
+  const app = options ? createWorkerApiApp(options) : defaultWorkerApiApp;
+  return app.fetch(request, env);
+}
 
-  if (pathname === "/api/health") {
-    return handleHealth(request);
-  }
+export function createWorkerApiApp(options: WorkerApiOptions = {}): Hono<WorkerApiHonoEnv> {
+  const app = new Hono<WorkerApiHonoEnv>({ strict: false });
 
-  if (pathname === "/api/me") {
-    if (request.method !== "GET") {
-      return methodNotAllowed(["GET"]);
+  app.use("*", async (context, next) => {
+    const allowedMethods = getHeadMethodAllowlist(context.req.raw);
+    if (allowedMethods) {
+      return methodNotAllowed(allowedMethods);
     }
 
-    const sessionResult = await requireClerkSession(request, env, "GET", options);
+    await next();
+  });
+
+  app.on(["GET", "HEAD"], "/api/health", (context) => handleHealth(context.req.raw));
+  app.all("/api/health", () => methodNotAllowed(["GET", "HEAD"]));
+
+  app.get(coreRoutes.me.path, async (context) => {
+    const sessionResult = await requireClerkSession(context.req.raw, context.env, "GET", options);
     if (!sessionResult.ok) {
       return sessionResult.response;
     }
 
-    return handleGetMe(sessionResult.session, env, options);
-  }
+    return handleGetMe(sessionResult.session, context.env, options);
+  });
+  app.all(coreRoutes.me.path, () => methodNotAllowed(coreRoutes.me.allowedMethods));
 
-  if (pathname === "/api/me/profile") {
-    if (request.method !== "POST") {
-      return methodNotAllowed(["POST"]);
-    }
-
-    const sessionResult = await requireClerkSession(request, env, "POST", options);
+  app.post(coreRoutes.meProfile.path, async (context) => {
+    const sessionResult = await requireClerkSession(context.req.raw, context.env, "POST", options);
     if (!sessionResult.ok) {
       return sessionResult.response;
     }
 
-    return handlePostMeProfile(request, sessionResult.session, env, options);
-  }
+    return handlePostMeProfile(context.req.raw, sessionResult.session, context.env, options);
+  });
+  app.all(coreRoutes.meProfile.path, () => methodNotAllowed(coreRoutes.meProfile.allowedMethods));
 
-  if (pathname === "/api/repos") {
-    if (request.method === "GET") {
-      return handleListRepositories(env, options);
-    }
-
-    if (request.method === "POST") {
-      const sessionResult = await requireClerkSession(request, env, "POST", options);
-      if (!sessionResult.ok) {
-        return sessionResult.response;
-      }
-
-      const profileResult = await requireBootstrappedProfile(sessionResult.session, env, options);
-      if (!profileResult.ok) {
-        return profileResult.response;
-      }
-
-      return handlePostRepository(request, profileResult.profile, env, options);
-    }
-
-    return methodNotAllowed(["GET", "POST"]);
-  }
-
-  const repositoryDetailMatch = pathname.match(/^\/api\/repos\/([^/]+)\/([^/]+)$/);
-  if (repositoryDetailMatch && ["DELETE", "GET", "PATCH"].includes(request.method)) {
-    const ownerHandle = decodePathSegment(repositoryDetailMatch[1]);
-    const slug = decodePathSegment(repositoryDetailMatch[2]);
-    if (!ownerHandle || !slug) {
-      return notFound(pathname);
-    }
-
-    if (request.method === "GET") {
-      return handleGetRepository(request, ownerHandle, slug, env, options);
-    }
-
-    const sessionResult = await requireClerkSession(request, env, request.method, options);
-    if (!sessionResult.ok) {
-      return sessionResult.response;
-    }
-
-    const profileResult = await requireBootstrappedProfile(sessionResult.session, env, options);
+  app.get(coreRoutes.repositories.path, (context) => handleListRepositories(context.env, options));
+  app.post(coreRoutes.repositories.path, async (context) => {
+    const profileResult = await requireAuthenticatedProfile(
+      context.req.raw,
+      context.env,
+      "POST",
+      options,
+    );
     if (!profileResult.ok) {
       return profileResult.response;
     }
 
-    if (request.method === "PATCH") {
-      return handlePatchRepository(request, ownerHandle, slug, profileResult.profile, env, options);
+    return handlePostRepository(context.req.raw, profileResult.profile, context.env, options);
+  });
+  app.all(coreRoutes.repositories.path, () =>
+    methodNotAllowed(coreRoutes.repositories.allowedMethods),
+  );
+
+  app.get(coreRoutes.repositoryDetail.path, (context) => {
+    const params = getRepositoryParams(
+      context.req.param("owner"),
+      context.req.param("repo"),
+      context.req.raw,
+    );
+    if (!params.ok) {
+      return params.response;
     }
 
-    return handleDeleteRepository(ownerHandle, slug, profileResult.profile, env, options);
-  }
-
-  const repoMatch = findMatcher(pathname, repoRouteMatchers);
-  if (repoMatch) {
-    return handleRouteScaffold(
-      request,
-      env,
-      repoMatch,
-      "Recipe repository API is not implemented yet.",
+    return handleGetRepository(
+      context.req.raw,
+      params.ownerHandle,
+      params.slug,
+      context.env,
       options,
     );
-  }
+  });
+  app.patch(coreRoutes.repositoryDetail.path, async (context) => {
+    const params = getRepositoryParams(
+      context.req.param("owner"),
+      context.req.param("repo"),
+      context.req.raw,
+    );
+    if (!params.ok) {
+      return params.response;
+    }
 
-  const inventoryMatch = findMatcher(pathname, inventoryRouteMatchers);
-  if (inventoryMatch) {
-    return handleRouteScaffold(
-      request,
-      env,
-      inventoryMatch,
-      "Inventory API is not implemented yet.",
+    const profileResult = await requireAuthenticatedProfile(
+      context.req.raw,
+      context.env,
+      "PATCH",
       options,
     );
-  }
+    if (!profileResult.ok) {
+      return profileResult.response;
+    }
 
-  const profileMatch = findMatcher(pathname, profileRouteMatchers);
-  if (profileMatch) {
-    return handleRouteScaffold(
-      request,
-      env,
-      profileMatch,
-      "Profile API is not implemented yet.",
+    return handlePatchRepository(
+      context.req.raw,
+      params.ownerHandle,
+      params.slug,
+      profileResult.profile,
+      context.env,
       options,
     );
-  }
+  });
+  app.delete(coreRoutes.repositoryDetail.path, async (context) => {
+    const params = getRepositoryParams(
+      context.req.param("owner"),
+      context.req.param("repo"),
+      context.req.raw,
+    );
+    if (!params.ok) {
+      return params.response;
+    }
 
-  return notFound(pathname);
+    const profileResult = await requireAuthenticatedProfile(
+      context.req.raw,
+      context.env,
+      "DELETE",
+      options,
+    );
+    if (!profileResult.ok) {
+      return profileResult.response;
+    }
+
+    return handleDeleteRepository(
+      params.ownerHandle,
+      params.slug,
+      profileResult.profile,
+      context.env,
+      options,
+    );
+  });
+  app.all(coreRoutes.repositoryDetail.path, () =>
+    methodNotAllowed(coreRoutes.repositoryDetail.allowedMethods),
+  );
+
+  registerScaffoldRoutes(app, repoScaffoldRoutes, options);
+  registerScaffoldRoutes(app, inventoryScaffoldRoutes, options);
+  registerScaffoldRoutes(app, profileScaffoldRoutes, options);
+
+  app.notFound((context) => notFound(pathnameFromRequest(context.req.raw)));
+
+  return app;
 }
+
+const defaultWorkerApiApp = createWorkerApiApp();
 
 function handleHealth(request: Request): Response {
   const allowedMethods = ["GET", "HEAD"];
@@ -210,31 +305,52 @@ function handleHealth(request: Request): Response {
   });
 }
 
-async function handleRouteScaffold(
+function registerScaffoldRoutes(
+  app: Hono<WorkerApiHonoEnv>,
+  routes: readonly ScaffoldRoute[],
+  options: WorkerApiOptions,
+): void {
+  for (const route of routes) {
+    registerScaffoldRoute(app, route, options);
+  }
+}
+
+function registerScaffoldRoute(
+  app: Hono<WorkerApiHonoEnv>,
+  route: ScaffoldRoute,
+  options: WorkerApiOptions,
+): void {
+  const publicMethods = [...(route.publicMethods ?? [])];
+  const protectedMethods = [...(route.protectedMethods ?? [])];
+  const allowedMethods = [...publicMethods, ...protectedMethods];
+
+  if (publicMethods.length > 0) {
+    app.on(publicMethods, route.path, () => notImplemented(route.message));
+  }
+
+  if (protectedMethods.length > 0) {
+    app.on(protectedMethods, route.path, (context) =>
+      handleProtectedScaffold(
+        context.req.raw,
+        context.env,
+        context.req.raw.method,
+        route.message,
+        options,
+      ),
+    );
+  }
+
+  app.all(route.path, () => methodNotAllowed(allowedMethods));
+}
+
+async function handleProtectedScaffold(
   request: Request,
   env: WorkerEnv,
-  matcher: RouteMatcher,
+  method: string,
   message: string,
   options: WorkerApiOptions,
 ): Promise<Response> {
-  const publicMethods = matcher.publicMethods ?? [];
-  const protectedMethods = matcher.protectedMethods ?? [];
-  const allowedMethods = [...publicMethods, ...protectedMethods];
-
-  if (!allowedMethods.includes(request.method)) {
-    return methodNotAllowed(allowedMethods);
-  }
-
-  if (publicMethods.includes(request.method)) {
-    return notImplemented(message);
-  }
-
-  const sessionResult = await requireClerkSession(request, env, request.method, options);
-  if (!sessionResult.ok) {
-    return sessionResult.response;
-  }
-
-  const profileResult = await requireBootstrappedProfile(sessionResult.session, env, options);
+  const profileResult = await requireAuthenticatedProfile(request, env, method, options);
   if (!profileResult.ok) {
     return profileResult.response;
   }
@@ -242,13 +358,63 @@ async function handleRouteScaffold(
   return notImplemented(message);
 }
 
-function findMatcher(pathname: string, matchers: readonly RouteMatcher[]): RouteMatcher | null {
-  return matchers.find((matcher) => matcher.pattern.test(pathname)) ?? null;
-}
-
 function normalizePathname(pathname: string): string {
   const normalized = pathname.endsWith("/") && pathname !== "/" ? pathname.slice(0, -1) : pathname;
   return normalized;
+}
+
+function pathnameFromRequest(request: Request): string {
+  return normalizePathname(new URL(request.url).pathname);
+}
+
+function toHeadMethodRoutes(routes: readonly ScaffoldRoute[]): HeadMethodRoute[] {
+  return routes
+    .map((route) => ({
+      allowedMethods: [...(route.publicMethods ?? []), ...(route.protectedMethods ?? [])],
+      path: route.path,
+    }))
+    .filter((route) => route.allowedMethods.length > 0);
+}
+
+function getHeadMethodAllowlist(request: Request): readonly string[] | null {
+  if (request.method !== "HEAD") {
+    return null;
+  }
+
+  const pathname = pathnameFromRequest(request);
+  if (pathname === "/api/health") {
+    return null;
+  }
+
+  const route = headMethodRoutes.find((candidate) => matchesRoutePattern(pathname, candidate.path));
+
+  return route?.allowedMethods ?? null;
+}
+
+function matchesRoutePattern(pathname: string, routePath: string): boolean {
+  const pathnameParts = pathname.split("/").filter(Boolean);
+  const routeParts = routePath.split("/").filter(Boolean);
+  if (pathnameParts.length !== routeParts.length) {
+    return false;
+  }
+
+  return routeParts.every((routePart, index) => {
+    return routePart.startsWith(":") || routePart === pathnameParts[index];
+  });
+}
+
+function getRepositoryParams(
+  ownerHandleParam: string | undefined,
+  slugParam: string | undefined,
+  request: Request,
+): { ok: true; ownerHandle: string; slug: string } | { ok: false; response: Response } {
+  const ownerHandle = decodePathSegment(ownerHandleParam);
+  const slug = decodePathSegment(slugParam);
+  if (!ownerHandle || !slug) {
+    return { ok: false, response: notFound(pathnameFromRequest(request)) };
+  }
+
+  return { ok: true, ownerHandle, slug };
 }
 
 function decodePathSegment(value: string | undefined): string | null {
@@ -282,6 +448,20 @@ async function requireClerkSession(
   }
 
   return { ok: false, response: unauthorized() };
+}
+
+async function requireAuthenticatedProfile(
+  request: Request,
+  env: WorkerEnv,
+  method: string,
+  options: WorkerApiOptions,
+): Promise<{ ok: true; profile: UserProfile } | { ok: false; response: Response }> {
+  const sessionResult = await requireClerkSession(request, env, method, options);
+  if (!sessionResult.ok) {
+    return sessionResult;
+  }
+
+  return requireBootstrappedProfile(sessionResult.session, env, options);
 }
 
 function isMutationMethod(method: string): boolean {
