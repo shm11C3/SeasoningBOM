@@ -5,6 +5,7 @@ import type {
   CreateRecipeRepositoryInput,
   RecipeRepositoryMetadataRepository,
 } from "../../repositories/cloudflare-d1/D1RecipeRepository";
+import type { RepositoryStarRepository } from "../../repositories/cloudflare-d1/D1RepositoryStarRepository";
 import type {
   UserProfile,
   UserProfileRepository,
@@ -12,11 +13,14 @@ import type {
 import type { ClerkAuthenticationOptions } from "../auth/clerk";
 import {
   handleDeleteRepository,
+  handleDeleteRepositoryStar,
   handleGetRepository,
   handleGetRepositoryDependencies,
   handleListRepositories,
   handlePatchRepository,
   handlePostRepository,
+  handlePostRepositoryFork,
+  handlePostRepositoryStar,
 } from "./repositories";
 import type { D1Database, WorkerEnv } from "./types";
 
@@ -334,6 +338,397 @@ describe("repository API handlers", () => {
       error: {
         code: "internal_error",
         message: "Failed to load dependencies.",
+      },
+    });
+    expect(response.status).toBe(500);
+  });
+
+  it("stars and unstars readable repositories", async () => {
+    const publicRepository = {
+      ...privateRepository,
+      id: "repo_public",
+      slug: "public-curry",
+      visibility: "public",
+    } satisfies CloudRecipeRepository;
+    const repositoryStars = createRepositoryStarRepository();
+    const starResponse = await handlePostRepositoryStar(
+      new Request("https://example.test/api/repos/test-user/public-curry/star"),
+      "test-user",
+      "public-curry",
+      owner,
+      env,
+      {
+        now: () => new Date("2026-07-06T02:03:04.000Z"),
+        recipeRepositories: createRecipeRepository([publicRepository]),
+        repositoryStars,
+      },
+    );
+    const unstarResponse = await handleDeleteRepositoryStar(
+      new Request("https://example.test/api/repos/test-user/public-curry/star", {
+        method: "DELETE",
+      }),
+      "test-user",
+      "public-curry",
+      owner,
+      env,
+      {
+        recipeRepositories: createRecipeRepository([publicRepository]),
+        repositoryStars,
+      },
+    );
+
+    await expect(parseJson(starResponse)).resolves.toEqual({
+      repository: expect.objectContaining({
+        id: "repo_public",
+        slug: "public-curry",
+      }),
+      starred: true,
+    });
+    expect(starResponse.status).toBe(201);
+    expect(repositoryStars.hasStar({ repositoryId: "repo_public", userId: owner.id })).toBe(false);
+    expect(unstarResponse.status).toBe(204);
+  });
+
+  it("returns a JSON error when starring fails", async () => {
+    const publicRepository = {
+      ...privateRepository,
+      id: "repo_public",
+      slug: "public-curry",
+      visibility: "public",
+    } satisfies CloudRecipeRepository;
+    const response = await handlePostRepositoryStar(
+      new Request("https://example.test/api/repos/test-user/public-curry/star"),
+      "test-user",
+      "public-curry",
+      owner,
+      env,
+      {
+        recipeRepositories: createRecipeRepository([publicRepository]),
+        repositoryStars: {
+          async isStarred() {
+            return false;
+          },
+          async star() {
+            throw new Error("D1 unavailable");
+          },
+          async unstar() {},
+        },
+      },
+    );
+
+    await expect(parseJson(response)).resolves.toEqual({
+      error: {
+        code: "internal_error",
+        message: "Failed to star repository.",
+      },
+    });
+    expect(response.status).toBe(500);
+  });
+
+  it("returns a JSON error when unstarring fails", async () => {
+    const publicRepository = {
+      ...privateRepository,
+      id: "repo_public",
+      slug: "public-curry",
+      visibility: "public",
+    } satisfies CloudRecipeRepository;
+    const response = await handleDeleteRepositoryStar(
+      new Request("https://example.test/api/repos/test-user/public-curry/star", {
+        method: "DELETE",
+      }),
+      "test-user",
+      "public-curry",
+      owner,
+      env,
+      {
+        recipeRepositories: createRecipeRepository([publicRepository]),
+        repositoryStars: {
+          async isStarred() {
+            return true;
+          },
+          async star() {},
+          async unstar() {
+            throw new Error("D1 unavailable");
+          },
+        },
+      },
+    );
+
+    await expect(parseJson(response)).resolves.toEqual({
+      error: {
+        code: "internal_error",
+        message: "Failed to unstar repository.",
+      },
+    });
+    expect(response.status).toBe(500);
+  });
+
+  it("forks public repositories and records the source repository", async () => {
+    const sourceRepository = {
+      ...privateRepository,
+      description: "A reliable curry recipe.",
+      id: "repo_source",
+      license: "Mother's Taste License",
+      name: "Public Curry",
+      ownerHandle: "source-user",
+      ownerUserId: "profile_source",
+      readme: "# Public Curry",
+      servings: 4,
+      slug: "public-curry",
+      version: "1.2.3",
+      visibility: "public",
+    } satisfies CloudRecipeRepository;
+    const recipeRepositories = createRecipeRepository([sourceRepository]);
+    const response = await handlePostRepositoryFork("source-user", "public-curry", owner, env, {
+      createRepositoryId: () => "repo_fork",
+      now: () => new Date("2026-07-06T02:03:04.000Z"),
+      recipeRepositories,
+    });
+
+    await expect(parseJson(response)).resolves.toEqual({
+      repository: expect.objectContaining({
+        id: "repo_fork",
+        ownerHandle: "test-user",
+        slug: "public-curry",
+        sourceRepositoryId: "repo_source",
+        visibility: "public",
+      }),
+    });
+    expect(response.status).toBe(201);
+    await expect(
+      recipeRepositories.findByOwnerAndSlug("test-user", "public-curry"),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        id: "repo_fork",
+        sourceRepositoryId: "repo_source",
+      }),
+    );
+  });
+
+  it("forks unlisted repositories by exact URL", async () => {
+    const sourceRepository = {
+      ...privateRepository,
+      id: "repo_source",
+      ownerHandle: "source-user",
+      ownerUserId: "profile_source",
+      slug: "unlisted-curry",
+      visibility: "unlisted",
+    } satisfies CloudRecipeRepository;
+    const response = await handlePostRepositoryFork("source-user", "unlisted-curry", owner, env, {
+      createRepositoryId: () => "repo_fork",
+      recipeRepositories: createRecipeRepository([sourceRepository]),
+    });
+
+    await expect(parseJson(response)).resolves.toEqual({
+      repository: expect.objectContaining({
+        id: "repo_fork",
+        sourceRepositoryId: "repo_source",
+      }),
+    });
+    expect(response.status).toBe(201);
+  });
+
+  it("does not fork private repositories", async () => {
+    const response = await handlePostRepositoryFork("test-user", "private-curry", owner, env, {
+      recipeRepositories: createRecipeRepository([privateRepository]),
+    });
+
+    await expect(parseJson(response)).resolves.toEqual({
+      error: {
+        code: "not_found",
+        message: "Repository not found.",
+      },
+    });
+    expect(response.status).toBe(404);
+  });
+
+  it("returns not found when the fork source repository does not exist", async () => {
+    const response = await handlePostRepositoryFork("source-user", "missing-curry", owner, env, {
+      recipeRepositories: createRecipeRepository([]),
+    });
+
+    await expect(parseJson(response)).resolves.toEqual({
+      error: {
+        code: "not_found",
+        message: "Repository not found.",
+      },
+    });
+    expect(response.status).toBe(404);
+  });
+
+  it("returns a JSON error when fork source lookup fails", async () => {
+    const response = await handlePostRepositoryFork("source-user", "public-curry", owner, env, {
+      recipeRepositories: {
+        ...createRecipeRepository([]),
+        async findByOwnerAndSlug() {
+          throw new Error("D1 unavailable");
+        },
+      },
+    });
+
+    await expect(parseJson(response)).resolves.toEqual({
+      error: {
+        code: "internal_error",
+        message: "Failed to fork repository.",
+      },
+    });
+    expect(response.status).toBe(500);
+  });
+
+  it("returns a JSON error when fork target lookup fails", async () => {
+    const sourceRepository = {
+      ...privateRepository,
+      id: "repo_source",
+      ownerHandle: "source-user",
+      ownerUserId: "profile_source",
+      slug: "public-curry",
+      visibility: "public",
+    } satisfies CloudRecipeRepository;
+    const response = await handlePostRepositoryFork("source-user", "public-curry", owner, env, {
+      recipeRepositories: {
+        ...createRecipeRepository([sourceRepository]),
+        async findByOwnerAndSlug(ownerHandle, slug) {
+          if (ownerHandle === "source-user" && slug === "public-curry") {
+            return sourceRepository;
+          }
+          throw new Error("D1 unavailable");
+        },
+      },
+    });
+
+    await expect(parseJson(response)).resolves.toEqual({
+      error: {
+        code: "internal_error",
+        message: "Failed to fork repository.",
+      },
+    });
+    expect(response.status).toBe(500);
+  });
+
+  it("returns conflict when a fork target slug already exists for the owner", async () => {
+    const sourceRepository = {
+      ...privateRepository,
+      id: "repo_source",
+      ownerHandle: "source-user",
+      ownerUserId: "profile_source",
+      slug: "private-curry",
+      visibility: "public",
+    } satisfies CloudRecipeRepository;
+    const response = await handlePostRepositoryFork("source-user", "private-curry", owner, env, {
+      recipeRepositories: createRecipeRepository([sourceRepository, privateRepository]),
+    });
+
+    await expect(parseJson(response)).resolves.toEqual({
+      error: {
+        code: "repository_already_exists",
+        message: "A repository with this owner and slug already exists.",
+      },
+    });
+    expect(response.status).toBe(409);
+  });
+
+  it("returns conflict when a fork create race reserves the target slug", async () => {
+    const sourceRepository = {
+      ...privateRepository,
+      id: "repo_source",
+      ownerHandle: "source-user",
+      ownerUserId: "profile_source",
+      slug: "public-curry",
+      visibility: "public",
+    } satisfies CloudRecipeRepository;
+    const racedRepository = {
+      ...sourceRepository,
+      id: "repo_raced",
+      ownerHandle: owner.username,
+      ownerUserId: owner.id,
+      sourceRepositoryId: sourceRepository.id,
+    } satisfies CloudRecipeRepository;
+    let targetLookups = 0;
+    const response = await handlePostRepositoryFork("source-user", "public-curry", owner, env, {
+      recipeRepositories: {
+        ...createRecipeRepository([sourceRepository]),
+        async create() {
+          throw new Error("D1 constraint");
+        },
+        async findByOwnerAndSlug(ownerHandle, slug) {
+          if (ownerHandle === "source-user" && slug === "public-curry") {
+            return sourceRepository;
+          }
+          targetLookups += 1;
+          return targetLookups === 1 ? null : racedRepository;
+        },
+      },
+    });
+
+    await expect(parseJson(response)).resolves.toEqual({
+      error: {
+        code: "repository_already_exists",
+        message: "A repository with this owner and slug already exists.",
+      },
+    });
+    expect(response.status).toBe(409);
+  });
+
+  it("returns a JSON error when fork create diagnostics fail", async () => {
+    const sourceRepository = {
+      ...privateRepository,
+      id: "repo_source",
+      ownerHandle: "source-user",
+      ownerUserId: "profile_source",
+      slug: "public-curry",
+      visibility: "public",
+    } satisfies CloudRecipeRepository;
+    let targetLookups = 0;
+    const response = await handlePostRepositoryFork("source-user", "public-curry", owner, env, {
+      recipeRepositories: {
+        ...createRecipeRepository([sourceRepository]),
+        async create() {
+          throw new Error("D1 unavailable");
+        },
+        async findByOwnerAndSlug(ownerHandle, slug) {
+          if (ownerHandle === "source-user" && slug === "public-curry") {
+            return sourceRepository;
+          }
+          targetLookups += 1;
+          if (targetLookups === 1) {
+            return null;
+          }
+          throw new Error("D1 unavailable");
+        },
+      },
+    });
+
+    await expect(parseJson(response)).resolves.toEqual({
+      error: {
+        code: "internal_error",
+        message: "Failed to fork repository.",
+      },
+    });
+    expect(response.status).toBe(500);
+  });
+
+  it("returns a JSON error when fork creation fails without a diagnostic match", async () => {
+    const sourceRepository = {
+      ...privateRepository,
+      id: "repo_source",
+      ownerHandle: "source-user",
+      ownerUserId: "profile_source",
+      slug: "public-curry",
+      visibility: "public",
+    } satisfies CloudRecipeRepository;
+    const response = await handlePostRepositoryFork("source-user", "public-curry", owner, env, {
+      recipeRepositories: {
+        ...createRecipeRepository([sourceRepository]),
+        async create() {
+          throw new Error("D1 unavailable");
+        },
+      },
+    });
+
+    await expect(parseJson(response)).resolves.toEqual({
+      error: {
+        code: "internal_error",
+        message: "Failed to fork repository.",
       },
     });
     expect(response.status).toBe(500);
@@ -662,6 +1057,31 @@ function createValidPostRequest(overrides: Record<string, unknown> = {}): Reques
     }),
     method: "POST",
   });
+}
+
+function createRepositoryStarRepository(): RepositoryStarRepository & {
+  hasStar(key: { repositoryId: string; userId: string }): boolean;
+} {
+  const stars = new Set<string>();
+
+  return {
+    hasStar(key) {
+      return stars.has(repositoryStarKey(key));
+    },
+    async isStarred(key) {
+      return stars.has(repositoryStarKey(key));
+    },
+    async star(input) {
+      stars.add(repositoryStarKey(input));
+    },
+    async unstar(key) {
+      stars.delete(repositoryStarKey(key));
+    },
+  };
+}
+
+function repositoryStarKey(key: { repositoryId: string; userId: string }): string {
+  return `${key.userId}:${key.repositoryId}`;
 }
 
 function createRecipeRepository(

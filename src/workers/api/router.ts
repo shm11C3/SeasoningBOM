@@ -20,11 +20,14 @@ import {
 } from "./profile";
 import {
   handleDeleteRepository,
+  handleDeleteRepositoryStar,
   handleGetRepository,
   handleGetRepositoryDependencies,
   handleListRepositories,
   handlePatchRepository,
   handlePostRepository,
+  handlePostRepositoryFork,
+  handlePostRepositoryStar,
   type RepositoryRouteOptions,
 } from "./repositories";
 import {
@@ -70,21 +73,19 @@ const coreRoutes = {
     allowedMethods: ["GET"],
     path: "/api/repos/:owner/:repo/dependencies",
   },
+  repositoryStar: {
+    allowedMethods: ["POST", "DELETE"],
+    path: "/api/repos/:owner/:repo/star",
+  },
+  repositoryFork: {
+    allowedMethods: ["POST"],
+    path: "/api/repos/:owner/:repo/fork",
+  },
   inventory: { allowedMethods: ["GET", "POST"], path: "/api/inventory" },
   inventoryItem: { allowedMethods: ["PATCH", "DELETE"], path: "/api/inventory/:id" },
 } as const satisfies Record<string, HeadMethodRoute>;
 
 const repoScaffoldRoutes: ScaffoldRoute[] = [
-  {
-    message: "Recipe repository API is not implemented yet.",
-    path: "/api/repos/:owner/:repo/star",
-    protectedMethods: ["POST", "DELETE"],
-  },
-  {
-    message: "Recipe repository API is not implemented yet.",
-    path: "/api/repos/:owner/:repo/fork",
-    protectedMethods: ["POST"],
-  },
   {
     message: "Recipe repository API is not implemented yet.",
     path: "/api/repos/:owner/:repo/bom",
@@ -293,6 +294,100 @@ export function createWorkerApiApp(options: WorkerApiOptions = {}): Hono<WorkerA
   });
   app.all(coreRoutes.repositoryDependencies.path, () =>
     methodNotAllowed(coreRoutes.repositoryDependencies.allowedMethods),
+  );
+
+  app.post(coreRoutes.repositoryStar.path, async (context) => {
+    const params = getRepositoryParams(
+      context.req.param("owner"),
+      context.req.param("repo"),
+      context.req.raw,
+    );
+    if (!params.ok) {
+      return params.response;
+    }
+
+    const profileResult = await requireAuthenticatedProfile(
+      context.req.raw,
+      context.env,
+      "POST",
+      options,
+    );
+    if (!profileResult.ok) {
+      return profileResult.response;
+    }
+
+    return handlePostRepositoryStar(
+      context.req.raw,
+      params.ownerHandle,
+      params.slug,
+      profileResult.profile,
+      context.env,
+      options,
+    );
+  });
+  app.delete(coreRoutes.repositoryStar.path, async (context) => {
+    const params = getRepositoryParams(
+      context.req.param("owner"),
+      context.req.param("repo"),
+      context.req.raw,
+    );
+    if (!params.ok) {
+      return params.response;
+    }
+
+    const profileResult = await requireAuthenticatedProfile(
+      context.req.raw,
+      context.env,
+      "DELETE",
+      options,
+    );
+    if (!profileResult.ok) {
+      return profileResult.response;
+    }
+
+    return handleDeleteRepositoryStar(
+      context.req.raw,
+      params.ownerHandle,
+      params.slug,
+      profileResult.profile,
+      context.env,
+      options,
+    );
+  });
+  app.all(coreRoutes.repositoryStar.path, () =>
+    methodNotAllowed(coreRoutes.repositoryStar.allowedMethods),
+  );
+
+  app.post(coreRoutes.repositoryFork.path, async (context) => {
+    const params = getRepositoryParams(
+      context.req.param("owner"),
+      context.req.param("repo"),
+      context.req.raw,
+    );
+    if (!params.ok) {
+      return params.response;
+    }
+
+    const profileResult = await requireAuthenticatedProfile(
+      context.req.raw,
+      context.env,
+      "POST",
+      options,
+    );
+    if (!profileResult.ok) {
+      return profileResult.response;
+    }
+
+    return handlePostRepositoryFork(
+      params.ownerHandle,
+      params.slug,
+      profileResult.profile,
+      context.env,
+      options,
+    );
+  });
+  app.all(coreRoutes.repositoryFork.path, () =>
+    methodNotAllowed(coreRoutes.repositoryFork.allowedMethods),
   );
 
   app.get(coreRoutes.inventory.path, async (context) => {
