@@ -21,6 +21,7 @@ import {
 import {
   handleDeleteRepository,
   handleGetRepository,
+  handleGetRepositoryDependencies,
   handleListRepositories,
   handlePatchRepository,
   handlePostRepository,
@@ -65,6 +66,10 @@ const coreRoutes = {
     allowedMethods: ["GET", "PATCH", "DELETE"],
     path: "/api/repos/:owner/:repo",
   },
+  repositoryDependencies: {
+    allowedMethods: ["GET"],
+    path: "/api/repos/:owner/:repo/dependencies",
+  },
   inventory: { allowedMethods: ["GET", "POST"], path: "/api/inventory" },
   inventoryItem: { allowedMethods: ["PATCH", "DELETE"], path: "/api/inventory/:id" },
 } as const satisfies Record<string, HeadMethodRoute>;
@@ -83,11 +88,6 @@ const repoScaffoldRoutes: ScaffoldRoute[] = [
   {
     message: "Recipe repository API is not implemented yet.",
     path: "/api/repos/:owner/:repo/bom",
-    publicMethods: ["GET"],
-  },
-  {
-    message: "Recipe repository API is not implemented yet.",
-    path: "/api/repos/:owner/:repo/dependencies",
     publicMethods: ["GET"],
   },
   {
@@ -271,6 +271,28 @@ export function createWorkerApiApp(options: WorkerApiOptions = {}): Hono<WorkerA
   });
   app.all(coreRoutes.repositoryDetail.path, () =>
     methodNotAllowed(coreRoutes.repositoryDetail.allowedMethods),
+  );
+
+  app.get(coreRoutes.repositoryDependencies.path, (context) => {
+    const params = getRepositoryParams(
+      context.req.param("owner"),
+      context.req.param("repo"),
+      context.req.raw,
+    );
+    if (!params.ok) {
+      return params.response;
+    }
+
+    return handleGetRepositoryDependencies(
+      context.req.raw,
+      params.ownerHandle,
+      params.slug,
+      context.env,
+      options,
+    );
+  });
+  app.all(coreRoutes.repositoryDependencies.path, () =>
+    methodNotAllowed(coreRoutes.repositoryDependencies.allowedMethods),
   );
 
   app.get(coreRoutes.inventory.path, async (context) => {

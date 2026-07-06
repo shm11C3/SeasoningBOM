@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { RecipeComponentReadRepository } from "../../repositories/cloudflare-d1/D1RecipeComponentRepository";
 import type {
   CloudRecipeRepository,
   CreateRecipeRepositoryInput,
@@ -12,6 +13,7 @@ import type { ClerkAuthenticationOptions } from "../auth/clerk";
 import {
   handleDeleteRepository,
   handleGetRepository,
+  handleGetRepositoryDependencies,
   handleListRepositories,
   handlePatchRepository,
   handlePostRepository,
@@ -57,6 +59,26 @@ const privateRepository: CloudRecipeRepository = {
   version: "0.1.0",
   visibility: "private",
 };
+
+const recipeComponent = {
+  allergens: ["wheat"],
+  alternatives: ["homemade roux"],
+  dependencyType: "required",
+  id: "component_roux",
+  ingredientName: "curry-roux",
+  quantity: 1,
+  recipeId: "repo_private",
+  required: true,
+  transitiveDependencies: [
+    {
+      allergens: ["milk"],
+      dependencyType: "transitive",
+      name: "milk powder",
+      notes: "Often hidden in roux blocks.",
+    },
+  ],
+  unit: "box",
+} satisfies Awaited<ReturnType<RecipeComponentReadRepository["listByRepositoryId"]>>[number];
 
 async function parseJson(response: Response) {
   return response.json() as Promise<unknown>;
@@ -162,6 +184,159 @@ describe("repository API handlers", () => {
       },
     });
     expect(response.status).toBe(404);
+  });
+
+  it("returns public repository dependencies without requiring login", async () => {
+    const publicRepository = {
+      ...privateRepository,
+      id: "repo_public",
+      slug: "public-curry",
+      visibility: "public",
+    } satisfies CloudRecipeRepository;
+    const response = await handleGetRepositoryDependencies(
+      new Request("https://example.test/api/repos/test-user/public-curry/dependencies"),
+      "test-user",
+      "public-curry",
+      env,
+      {
+        recipeComponents: createRecipeComponentRepository([
+          { ...recipeComponent, recipeId: "repo_public" },
+        ]),
+        recipeRepositories: createRecipeRepository([publicRepository]),
+      },
+    );
+
+    await expect(parseJson(response)).resolves.toEqual({
+      components: [
+        {
+          allergens: ["wheat"],
+          alternatives: ["homemade roux"],
+          dependencyType: "required",
+          id: "component_roux",
+          ingredientName: "curry-roux",
+          quantity: 1,
+          required: true,
+          transitiveDependencies: [
+            {
+              allergens: ["milk"],
+              dependencyType: "transitive",
+              name: "milk powder",
+              notes: "Often hidden in roux blocks.",
+            },
+          ],
+          unit: "box",
+        },
+      ],
+      repository: expect.objectContaining({
+        id: "repo_public",
+        slug: "public-curry",
+      }),
+    });
+    expect(response.status).toBe(200);
+  });
+
+  it("returns unlisted repository dependencies without requiring login", async () => {
+    const unlistedRepository = {
+      ...privateRepository,
+      id: "repo_unlisted",
+      slug: "unlisted-curry",
+      visibility: "unlisted",
+    } satisfies CloudRecipeRepository;
+    const response = await handleGetRepositoryDependencies(
+      new Request("https://example.test/api/repos/test-user/unlisted-curry/dependencies"),
+      "test-user",
+      "unlisted-curry",
+      env,
+      {
+        recipeComponents: createRecipeComponentRepository([
+          { ...recipeComponent, recipeId: "repo_unlisted" },
+        ]),
+        recipeRepositories: createRecipeRepository([unlistedRepository]),
+      },
+    );
+
+    await expect(parseJson(response)).resolves.toEqual({
+      components: [expect.objectContaining({ id: "component_roux" })],
+      repository: expect.objectContaining({
+        id: "repo_unlisted",
+        slug: "unlisted-curry",
+        visibility: "unlisted",
+      }),
+    });
+    expect(response.status).toBe(200);
+  });
+
+  it("keeps private repository dependencies owner-only", async () => {
+    const unauthenticated = await handleGetRepositoryDependencies(
+      new Request("https://example.test/api/repos/test-user/private-curry/dependencies"),
+      "test-user",
+      "private-curry",
+      env,
+      {
+        recipeComponents: createRecipeComponentRepository([recipeComponent]),
+        recipeRepositories: createRecipeRepository([privateRepository]),
+      },
+    );
+    const ownerResponse = await handleGetRepositoryDependencies(
+      new Request("https://example.test/api/repos/test-user/private-curry/dependencies", {
+        headers: {
+          authorization: "Bearer fake-session",
+        },
+      }),
+      "test-user",
+      "private-curry",
+      env,
+      {
+        ...validSessionAuth,
+        recipeComponents: createRecipeComponentRepository([recipeComponent]),
+        recipeRepositories: createRecipeRepository([privateRepository]),
+        userProfiles: createUserProfileRepository([owner]),
+      },
+    );
+
+    await expect(parseJson(unauthenticated)).resolves.toEqual({
+      error: {
+        code: "not_found",
+        message: "Repository not found.",
+      },
+    });
+    expect(unauthenticated.status).toBe(404);
+    await expect(parseJson(ownerResponse)).resolves.toEqual({
+      components: [expect.objectContaining({ id: "component_roux" })],
+      repository: expect.objectContaining({ id: "repo_private" }),
+    });
+    expect(ownerResponse.status).toBe(200);
+  });
+
+  it("returns a JSON error when dependency loading fails", async () => {
+    const response = await handleGetRepositoryDependencies(
+      new Request("https://example.test/api/repos/test-user/private-curry/dependencies", {
+        headers: {
+          authorization: "Bearer fake-session",
+        },
+      }),
+      "test-user",
+      "private-curry",
+      env,
+      {
+        ...validSessionAuth,
+        recipeComponents: {
+          async listByRepositoryId() {
+            throw new Error("D1 unavailable");
+          },
+        },
+        recipeRepositories: createRecipeRepository([privateRepository]),
+        userProfiles: createUserProfileRepository([owner]),
+      },
+    );
+
+    await expect(parseJson(response)).resolves.toEqual({
+      error: {
+        code: "internal_error",
+        message: "Failed to load dependencies.",
+      },
+    });
+    expect(response.status).toBe(500);
   });
 
   it("creates a repository with default metadata", async () => {
@@ -557,6 +732,18 @@ function createRecipeRepository(
         repositories[index] = repository;
       }
       return repository;
+    },
+  };
+}
+
+function createRecipeComponentRepository(
+  initialComponents: Awaited<ReturnType<RecipeComponentReadRepository["listByRepositoryId"]>>,
+): RecipeComponentReadRepository {
+  const components = [...initialComponents];
+
+  return {
+    async listByRepositoryId(repositoryId) {
+      return components.filter((component) => component.recipeId === repositoryId);
     },
   };
 }
