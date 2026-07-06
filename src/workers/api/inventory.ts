@@ -7,8 +7,10 @@ import {
 } from "../../domain";
 import {
   type CloudInventoryItem,
+  type CreateInventoryItemInput,
   D1InventoryRepository,
   type InventoryItemRepository,
+  type UpdateInventoryItemInput,
 } from "../../repositories/cloudflare-d1/D1InventoryRepository";
 import type { UserProfile } from "../../repositories/cloudflare-d1/D1UserProfileRepository";
 import type { ClerkAuthenticationOptions } from "../auth/clerk";
@@ -155,6 +157,9 @@ export async function handlePatchInventory(
       createdAt: currentResult.item.createdAt,
       now,
     });
+    if (!item) {
+      return inventoryItemNotFound();
+    }
 
     return jsonResponse(serializeInventoryResponse(item));
   } catch {
@@ -354,8 +359,8 @@ function normalizeUpdateInventoryBody(
   };
 }
 
-type CreateInventoryInput = Parameters<InventoryItemRepository["create"]>[0];
-type UpdateInventoryInput = Parameters<InventoryItemRepository["update"]>[0];
+type CreateInventoryInput = CreateInventoryItemInput;
+type UpdateInventoryInput = UpdateInventoryItemInput;
 
 function normalizeRequiredText(value: unknown, maxLength: number): string | null {
   if (typeof value !== "string") {

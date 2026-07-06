@@ -908,6 +908,63 @@ describe("Worker API router", () => {
     ).resolves.toBeNull();
   });
 
+  it("hides inventory item mutations from non-owners", async () => {
+    const inventoryItems = createInventoryRepository([
+      {
+        ...inventoryItem,
+        id: "inventory_other",
+        userId: "profile_other",
+      },
+    ]);
+    const patched = await handleApiRequest(
+      new Request("https://example.test/api/inventory/inventory_other", {
+        body: JSON.stringify({ quantity: 3 }),
+        headers: {
+          authorization: "Bearer fake-session",
+        },
+        method: "PATCH",
+      }),
+      configuredEnv,
+      {
+        ...validSessionAuth,
+        inventoryItems,
+        userProfiles: createUserProfileRepository([userProfile]),
+      },
+    );
+    const deleted = await handleApiRequest(
+      new Request("https://example.test/api/inventory/inventory_other", {
+        headers: {
+          authorization: "Bearer fake-session",
+        },
+        method: "DELETE",
+      }),
+      configuredEnv,
+      {
+        ...validSessionAuth,
+        inventoryItems,
+        userProfiles: createUserProfileRepository([userProfile]),
+      },
+    );
+
+    await expect(parseJson(patched)).resolves.toEqual({
+      error: {
+        code: "not_found",
+        message: "Inventory item not found.",
+      },
+    });
+    expect(patched.status).toBe(404);
+    await expect(parseJson(deleted)).resolves.toEqual({
+      error: {
+        code: "not_found",
+        message: "Inventory item not found.",
+      },
+    });
+    expect(deleted.status).toBe(404);
+    await expect(
+      inventoryItems.findByIdForUser("profile_other", "inventory_other"),
+    ).resolves.toEqual(expect.objectContaining({ quantity: 2 }));
+  });
+
   it("rejects unsupported inventory methods with an Allow header", async () => {
     const collectionHead = await handleApiRequest(
       new Request("https://example.test/api/inventory", { method: "HEAD" }),
@@ -1113,10 +1170,13 @@ function createInventoryRepository(initialItems: CloudInventoryItem[]): Inventor
         useByDate: input.useByDate,
         userId: input.userId,
       };
-      const index = items.findIndex((storedItem) => storedItem.id === input.id);
-      if (index >= 0) {
-        items[index] = item;
+      const index = items.findIndex(
+        (storedItem) => storedItem.id === input.id && storedItem.userId === input.userId,
+      );
+      if (index < 0) {
+        return null;
       }
+      items[index] = item;
       return item;
     },
   };

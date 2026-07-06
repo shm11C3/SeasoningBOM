@@ -96,6 +96,10 @@ describe("D1InventoryRepository", () => {
       now: "2026-07-06T02:03:04.000Z",
       quantity: 2,
     });
+    expect(updated).not.toBeNull();
+    if (!updated) {
+      throw new Error("Expected inventory update to return the updated item.");
+    }
 
     await expect(inventory.findByIdForUser("profile_test", "inventory_milk")).resolves.toEqual(
       updated,
@@ -106,6 +110,18 @@ describe("D1InventoryRepository", () => {
       quantity: 2,
       updatedAt: "2026-07-06T02:03:04.000Z",
     });
+
+    await expect(
+      inventory.update({
+        ...updated,
+        now: "2026-07-06T03:04:05.000Z",
+        quantity: 9,
+        userId: "profile_other",
+      }),
+    ).resolves.toBeNull();
+    await expect(inventory.findByIdForUser("profile_test", "inventory_milk")).resolves.toEqual(
+      updated,
+    );
 
     await inventory.deleteForUser("profile_other", "inventory_milk");
     await expect(inventory.findByIdForUser("profile_test", "inventory_milk")).resolves.toEqual(
@@ -149,8 +165,11 @@ function createStatement(
       throw new Error("raw is not implemented in this test adapter");
     },
     run: async <T = unknown>() => {
-      db.prepare(query).run(...sqliteValues);
-      return { success: true } satisfies D1Result<T>;
+      const result = db.prepare(query).run(...sqliteValues) as { changes?: bigint | number };
+      return {
+        meta: { changes: Number(result.changes ?? 0) },
+        success: true,
+      } satisfies D1Result<T>;
     },
   };
 }

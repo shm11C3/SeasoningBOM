@@ -185,7 +185,7 @@ describe("inventory API handlers", () => {
       message: "Quantity must be a finite number greater than or equal to 0.",
     },
     {
-      body: { category: "grain", name: "Rice", quantity: Number.POSITIVE_INFINITY, unit: "go" },
+      body: '{"category":"grain","name":"Rice","quantity":1e999,"unit":"go"}',
       message: "Quantity must be a finite number greater than or equal to 0.",
     },
     {
@@ -361,7 +361,7 @@ describe("inventory API handlers", () => {
       message: "Category must be a known inventory category.",
     },
     {
-      body: { quantity: Number.NaN },
+      body: '{"quantity":1e999}',
       message: "Quantity must be a finite number greater than or equal to 0.",
     },
     {
@@ -458,6 +458,34 @@ describe("inventory API handlers", () => {
       },
     });
     expect(response.status).toBe(500);
+  });
+
+  it("returns not found when inventory update loses its owned row", async () => {
+    const response = await handlePatchInventory(
+      new Request("https://example.test/api/inventory/inventory_rice", {
+        body: JSON.stringify({ quantity: 3 }),
+        method: "PATCH",
+      }),
+      "inventory_rice",
+      owner,
+      env,
+      {
+        inventoryItems: {
+          ...createInventoryRepository([rice]),
+          async update() {
+            return null;
+          },
+        },
+      },
+    );
+
+    await expect(parseJson(response)).resolves.toEqual({
+      error: {
+        code: "not_found",
+        message: "Inventory item not found.",
+      },
+    });
+    expect(response.status).toBe(404);
   });
 
   it("deletes inventory items for the owner", async () => {
@@ -576,10 +604,13 @@ function createInventoryRepository(initialItems: CloudInventoryItem[]): Inventor
         useByDate: input.useByDate,
         userId: input.userId,
       };
-      const index = items.findIndex((storedItem) => storedItem.id === input.id);
-      if (index >= 0) {
-        items[index] = item;
+      const index = items.findIndex(
+        (storedItem) => storedItem.id === input.id && storedItem.userId === input.userId,
+      );
+      if (index < 0) {
+        return null;
       }
+      items[index] = item;
       return item;
     },
   };

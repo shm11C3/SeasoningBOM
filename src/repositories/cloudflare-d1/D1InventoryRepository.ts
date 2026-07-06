@@ -51,7 +51,7 @@ export type InventoryItemRepository = {
   deleteForUser(userId: string, id: string): Promise<void>;
   findByIdForUser(userId: string, id: string): Promise<CloudInventoryItem | null>;
   listByUserId(userId: string): Promise<CloudInventoryItem[]>;
-  update(input: UpdateInventoryItemInput): Promise<CloudInventoryItem>;
+  update(input: UpdateInventoryItemInput): Promise<CloudInventoryItem | null>;
 };
 
 const inventorySelect = `SELECT
@@ -133,8 +133,8 @@ export class D1InventoryRepository implements InventoryItemRepository {
     };
   }
 
-  async update(input: UpdateInventoryItemInput): Promise<CloudInventoryItem> {
-    await this.db
+  async update(input: UpdateInventoryItemInput): Promise<CloudInventoryItem | null> {
+    const result = await this.db
       .prepare(
         `UPDATE inventory_items
          SET name = ?,
@@ -160,6 +160,9 @@ export class D1InventoryRepository implements InventoryItemRepository {
         input.id,
       )
       .run();
+    if (result.meta?.changes === 0) {
+      return null;
+    }
 
     return {
       id: input.id,
