@@ -4,7 +4,10 @@ export type D1Result<T = unknown> = {
   results?: T[];
   success: boolean;
   error?: string;
-  meta?: unknown;
+  meta?: {
+    changes?: number;
+    [key: string]: unknown;
+  };
 };
 
 export type D1PreparedStatement = {

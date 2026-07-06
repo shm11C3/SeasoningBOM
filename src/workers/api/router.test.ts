@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type {
+  CloudInventoryItem,
+  CreateInventoryItemInput,
+  InventoryItemRepository,
+  UpdateInventoryItemInput,
+} from "../../repositories/cloudflare-d1/D1InventoryRepository";
+import type {
   CloudRecipeRepository,
   CreateRecipeRepositoryInput,
   RecipeRepositoryMetadataRepository,
@@ -81,6 +87,19 @@ const privateRecipeRepository: CloudRecipeRepository = {
   name: "Private Curry",
   slug: "private-curry",
   visibility: "private",
+};
+
+const inventoryItem: CloudInventoryItem = {
+  bestBeforeDate: "2026-07-10",
+  category: "grain",
+  createdAt: "2026-07-06T00:00:00.000Z",
+  hazardous: false,
+  id: "inventory_rice",
+  name: "Rice",
+  quantity: 2,
+  unit: "go",
+  updatedAt: "2026-07-06T00:00:00.000Z",
+  userId: "profile_test",
 };
 
 async function parseJson(response: Response) {
@@ -745,7 +764,7 @@ describe("Worker API router", () => {
     expect(response.status).toBe(200);
   });
 
-  it("keeps private inventory routes authenticated in the scaffold", async () => {
+  it("keeps private inventory routes authenticated and owner scoped", async () => {
     const unauthenticated = await handleApiRequest(
       new Request("https://example.test/api/inventory"),
       env,
@@ -759,16 +778,212 @@ describe("Worker API router", () => {
       configuredEnv,
       {
         ...validSessionAuth,
+        inventoryItems: createInventoryRepository([
+          inventoryItem,
+          {
+            ...inventoryItem,
+            id: "inventory_other",
+            name: "Other Salt",
+            userId: "profile_other",
+          },
+        ]),
         userProfiles: createUserProfileRepository([userProfile]),
       },
     );
 
     expect(unauthenticated.status).toBe(401);
-    expect(authenticated.status).toBe(501);
     await expect(parseJson(authenticated)).resolves.toEqual({
+      inventoryItems: [
+        expect.objectContaining({
+          id: "inventory_rice",
+          name: "Rice",
+        }),
+      ],
+    });
+    expect(authenticated.status).toBe(200);
+  });
+
+  it("requires bearer auth for inventory mutations", async () => {
+    const cookieOnly = await handleApiRequest(
+      new Request("https://example.test/api/inventory", {
+        body: JSON.stringify({
+          category: "grain",
+          name: "Rice",
+          quantity: 2,
+          unit: "go",
+        }),
+        headers: {
+          cookie: "__session=fake-session",
+        },
+        method: "POST",
+      }),
+      configuredEnv,
+      {
+        ...validSessionAuth,
+        inventoryItems: createInventoryRepository([]),
+        userProfiles: createUserProfileRepository([userProfile]),
+      },
+    );
+    const bearer = await handleApiRequest(
+      new Request("https://example.test/api/inventory", {
+        body: JSON.stringify({
+          category: "grain",
+          name: "Rice",
+          quantity: 2,
+          unit: "go",
+        }),
+        headers: {
+          authorization: "Bearer fake-session",
+        },
+        method: "POST",
+      }),
+      configuredEnv,
+      {
+        ...validSessionAuth,
+        createInventoryItemId: () => "inventory_new",
+        inventoryItems: createInventoryRepository([]),
+        now: () => new Date("2026-07-06T01:02:03.000Z"),
+        userProfiles: createUserProfileRepository([userProfile]),
+      },
+    );
+
+    expect(cookieOnly.status).toBe(401);
+    await expect(parseJson(bearer)).resolves.toEqual({
+      inventoryItem: expect.objectContaining({
+        id: "inventory_new",
+        name: "Rice",
+      }),
+    });
+    expect(bearer.status).toBe(201);
+  });
+
+  it("updates and deletes inventory through authenticated inventory item routes", async () => {
+    const inventoryItems = createInventoryRepository([inventoryItem]);
+    const updated = await handleApiRequest(
+      new Request("https://example.test/api/inventory/inventory_rice", {
+        body: JSON.stringify({
+          hazardous: true,
+          quantity: 3,
+        }),
+        headers: {
+          authorization: "Bearer fake-session",
+        },
+        method: "PATCH",
+      }),
+      configuredEnv,
+      {
+        ...validSessionAuth,
+        inventoryItems,
+        now: () => new Date("2026-07-06T02:03:04.000Z"),
+        userProfiles: createUserProfileRepository([userProfile]),
+      },
+    );
+    const deleted = await handleApiRequest(
+      new Request("https://example.test/api/inventory/inventory_rice", {
+        headers: {
+          authorization: "Bearer fake-session",
+        },
+        method: "DELETE",
+      }),
+      configuredEnv,
+      {
+        ...validSessionAuth,
+        inventoryItems,
+        userProfiles: createUserProfileRepository([userProfile]),
+      },
+    );
+
+    await expect(parseJson(updated)).resolves.toEqual({
+      inventoryItem: expect.objectContaining({
+        hazardous: true,
+        id: "inventory_rice",
+        quantity: 3,
+      }),
+    });
+    expect(updated.status).toBe(200);
+    expect(deleted.status).toBe(204);
+    await expect(deleted.text()).resolves.toBe("");
+    await expect(
+      inventoryItems.findByIdForUser(userProfile.id, "inventory_rice"),
+    ).resolves.toBeNull();
+  });
+
+  it("hides inventory item mutations from non-owners", async () => {
+    const inventoryItems = createInventoryRepository([
+      {
+        ...inventoryItem,
+        id: "inventory_other",
+        userId: "profile_other",
+      },
+    ]);
+    const patched = await handleApiRequest(
+      new Request("https://example.test/api/inventory/inventory_other", {
+        body: JSON.stringify({ quantity: 3 }),
+        headers: {
+          authorization: "Bearer fake-session",
+        },
+        method: "PATCH",
+      }),
+      configuredEnv,
+      {
+        ...validSessionAuth,
+        inventoryItems,
+        userProfiles: createUserProfileRepository([userProfile]),
+      },
+    );
+    const deleted = await handleApiRequest(
+      new Request("https://example.test/api/inventory/inventory_other", {
+        headers: {
+          authorization: "Bearer fake-session",
+        },
+        method: "DELETE",
+      }),
+      configuredEnv,
+      {
+        ...validSessionAuth,
+        inventoryItems,
+        userProfiles: createUserProfileRepository([userProfile]),
+      },
+    );
+
+    await expect(parseJson(patched)).resolves.toEqual({
       error: {
-        code: "not_implemented",
-        message: "Inventory API is not implemented yet.",
+        code: "not_found",
+        message: "Inventory item not found.",
+      },
+    });
+    expect(patched.status).toBe(404);
+    await expect(parseJson(deleted)).resolves.toEqual({
+      error: {
+        code: "not_found",
+        message: "Inventory item not found.",
+      },
+    });
+    expect(deleted.status).toBe(404);
+    await expect(
+      inventoryItems.findByIdForUser("profile_other", "inventory_other"),
+    ).resolves.toEqual(expect.objectContaining({ quantity: 2 }));
+  });
+
+  it("rejects unsupported inventory methods with an Allow header", async () => {
+    const collectionHead = await handleApiRequest(
+      new Request("https://example.test/api/inventory", { method: "HEAD" }),
+      env,
+    );
+    const itemGet = await handleApiRequest(
+      new Request("https://example.test/api/inventory/inventory_rice"),
+      env,
+    );
+
+    expect(collectionHead.status).toBe(405);
+    expect(collectionHead.headers.get("allow")).toBe("GET, POST");
+    await expect(collectionHead.text()).resolves.toBe("");
+    expect(itemGet.status).toBe(405);
+    expect(itemGet.headers.get("allow")).toBe("PATCH, DELETE");
+    await expect(parseJson(itemGet)).resolves.toEqual({
+      error: {
+        code: "method_not_allowed",
+        message: "This HTTP method is not allowed.",
       },
     });
   });
@@ -904,6 +1119,65 @@ function createRecipeRepository(
         repositories[index] = repository;
       }
       return repository;
+    },
+  };
+}
+
+function createInventoryRepository(initialItems: CloudInventoryItem[]): InventoryItemRepository {
+  const items = [...initialItems];
+
+  return {
+    async create(input: CreateInventoryItemInput) {
+      const item: CloudInventoryItem = {
+        bestBeforeDate: input.bestBeforeDate,
+        category: input.category,
+        createdAt: input.now,
+        hazardous: input.hazardous ?? false,
+        id: input.id,
+        name: input.name,
+        quantity: input.quantity,
+        unit: input.unit,
+        updatedAt: input.now,
+        useByDate: input.useByDate,
+        userId: input.userId,
+      };
+      items.push(item);
+      return item;
+    },
+    async deleteForUser(userId, id) {
+      const index = items.findIndex((item) => item.userId === userId && item.id === id);
+      if (index >= 0) {
+        items.splice(index, 1);
+      }
+    },
+    async findByIdForUser(userId, id) {
+      return items.find((item) => item.userId === userId && item.id === id) ?? null;
+    },
+    async listByUserId(userId) {
+      return items.filter((item) => item.userId === userId);
+    },
+    async update(input: UpdateInventoryItemInput) {
+      const item: CloudInventoryItem = {
+        bestBeforeDate: input.bestBeforeDate,
+        category: input.category,
+        createdAt: input.createdAt,
+        hazardous: input.hazardous,
+        id: input.id,
+        name: input.name,
+        quantity: input.quantity,
+        unit: input.unit,
+        updatedAt: input.now,
+        useByDate: input.useByDate,
+        userId: input.userId,
+      };
+      const index = items.findIndex(
+        (storedItem) => storedItem.id === input.id && storedItem.userId === input.userId,
+      );
+      if (index < 0) {
+        return null;
+      }
+      items[index] = item;
+      return item;
     },
   };
 }
