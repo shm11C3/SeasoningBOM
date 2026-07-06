@@ -104,7 +104,7 @@ src/repositories/cloudflare-d1/
   D1RecipeComponentRepository.ts
   D1InventoryRepository.ts
   D1CookingLogRepository.ts
-  D1StarRepository.ts
+  D1RepositoryStarRepository.ts
   D1ContributionRepository.ts
 
 src/workers/
@@ -137,6 +137,8 @@ Production rules:
 - unlisted Repository reads require the exact URL but are not listed publicly.
 - Repository dependency reads are handled by `D1RecipeComponentRepository` and exposed through `GET /api/repos/:owner/:repo/dependencies`.
 - Repository dependency reads follow the same public / unlisted / private authorization boundary as repository metadata.
+- Repository stars are handled by `D1RepositoryStarRepository` and Workers API handlers.
+- Repository forks create a new repository owned by the authenticated user and preserve the source repository through `recipe_repositories.source_repository_id`.
 - `inventory_items` CRUD is handled by `D1InventoryRepository` and Workers API handlers.
 - `inventory_items` are always scoped to the authenticated user; requests cannot choose another inventory owner.
 - Inventory mutations require Authorization bearer tokens. Clerk `__session` cookies are limited to protected non-mutating reads until explicit CSRF handling is added.

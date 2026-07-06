@@ -111,11 +111,13 @@ Current implementation checkpoint:
 - Public repositories can be listed and fetched without login. Unlisted repositories can be fetched by exact URL but are excluded from listings. Private repository metadata is owner-only.
 - `GET /api/repos/:owner/:repo/dependencies` is wired to D1 `recipe_components` and `ingredient_dependencies` through `D1RecipeComponentRepository`.
 - Repository dependencies use the same public / unlisted / private read authorization as repository metadata. Component and dependency mutation endpoints are still not implemented.
+- `POST /api/repos/:owner/:repo/star` and `DELETE /api/repos/:owner/:repo/star` are wired to D1 `repository_stars` through `D1RepositoryStarRepository`.
+- `POST /api/repos/:owner/:repo/fork` creates a new D1 `recipe_repositories` row for the authenticated user and records the source repository in `source_repository_id`.
 - `GET /api/inventory`, `POST /api/inventory`, `PATCH /api/inventory/:id`, and `DELETE /api/inventory/:id` are wired to D1 `inventory_items` through `D1InventoryRepository`.
 - Inventory endpoints require a bootstrapped Clerk-backed profile and are scoped to the authenticated user. Inventory mutations require bearer tokens; `__session` cookies are limited to protected non-mutating reads.
 - `GET /api/repos/:owner/:repo/cooking-logs` and `POST /api/repos/:owner/:repo/cooking-logs` are wired to D1 `cooking_logs` through `D1CookingLogRepository`.
 - Creating a cooking log also creates a `cooking_logged` contribution event in the same D1 batch. Public cooking-log reads expose only logs from users with `contribution_visibility = "public"` plus the viewer's own logs.
-- Protected endpoints reject missing or invalid sessions before reaching planned handlers. Component/dependency mutations, star, fork, profile contribution reads, and non-cooking contribution automation are still not implemented.
+- Protected endpoints reject missing or invalid sessions before reaching protected handlers. Component/dependency mutations, profile contribution reads, and non-cooking contribution automation / contribution CRUD endpoints are still not implemented.
 
 Exit criteria:
 
