@@ -115,7 +115,7 @@ Current implementation checkpoint:
 - `POST /api/repos/:owner/:repo/fork` creates a new D1 `recipe_repositories` row for the authenticated user and records the source repository in `source_repository_id`.
 - `GET /api/inventory`, `POST /api/inventory`, `PATCH /api/inventory/:id`, and `DELETE /api/inventory/:id` are wired to D1 `inventory_items` through `D1InventoryRepository`.
 - Inventory endpoints require a bootstrapped Clerk-backed profile and are scoped to the authenticated user. Inventory mutations require bearer tokens; `__session` cookies are limited to protected non-mutating reads.
-- Protected endpoints reject missing or invalid sessions before reaching planned handlers. Component/dependency mutations and contribution CRUD endpoints are still not implemented.
+- Protected endpoints reject missing or invalid sessions before reaching protected handlers. Component/dependency mutations and contribution CRUD endpoints are still not implemented.
 
 Exit criteria:
 
