@@ -110,6 +110,17 @@ describe("Worker API router", () => {
     await expect(response.text()).resolves.toBe("");
   });
 
+  it("keeps trailing slashes equivalent for API routes", async () => {
+    const response = await handleApiRequest(new Request("https://example.test/api/health/"), env);
+
+    await expect(parseJson(response)).resolves.toEqual({
+      ok: true,
+      service: "SeasoningBOM",
+      persistence: "d1",
+    });
+    expect(response.status).toBe(200);
+  });
+
   it("rejects unsupported methods with an Allow header", async () => {
     const response = await handleApiRequest(
       new Request("https://example.test/api/health", { method: "POST" }),
@@ -444,6 +455,17 @@ describe("Worker API router", () => {
     expect(response.status).toBe(200);
   });
 
+  it("does not treat HEAD as a repository collection read", async () => {
+    const response = await handleApiRequest(
+      new Request("https://example.test/api/repos", { method: "HEAD" }),
+      env,
+    );
+
+    expect(response.status).toBe(405);
+    expect(response.headers.get("allow")).toBe("GET, POST");
+    await expect(response.text()).resolves.toBe("");
+  });
+
   it("creates repository metadata for the authenticated owner", async () => {
     const recipeRepositories = createRecipeRepository([]);
     const response = await handleApiRequest(
@@ -754,6 +776,21 @@ describe("Worker API router", () => {
   it("recognizes planned public profile routes without implementing them yet", async () => {
     const response = await handleApiRequest(
       new Request("https://example.test/api/users/shoma/profile"),
+      env,
+    );
+
+    await expect(parseJson(response)).resolves.toEqual({
+      error: {
+        code: "not_implemented",
+        message: "Profile API is not implemented yet.",
+      },
+    });
+    expect(response.status).toBe(501);
+  });
+
+  it("matches planned public profile routes with trailing slashes", async () => {
+    const response = await handleApiRequest(
+      new Request("https://example.test/api/users/shoma/profile/"),
       env,
     );
 
