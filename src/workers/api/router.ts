@@ -49,6 +49,16 @@ type HeadMethodRoute = {
   path: string;
 };
 
+const coreRoutes = {
+  me: { allowedMethods: ["GET"], path: "/api/me" },
+  meProfile: { allowedMethods: ["POST"], path: "/api/me/profile" },
+  repositories: { allowedMethods: ["GET", "POST"], path: "/api/repos" },
+  repositoryDetail: {
+    allowedMethods: ["GET", "PATCH", "DELETE"],
+    path: "/api/repos/:owner/:repo",
+  },
+} as const satisfies Record<string, HeadMethodRoute>;
+
 const repoScaffoldRoutes: ScaffoldRoute[] = [
   {
     message: "Recipe repository API is not implemented yet.",
@@ -120,10 +130,7 @@ const profileScaffoldRoutes: ScaffoldRoute[] = [
 ];
 
 const headMethodRoutes: HeadMethodRoute[] = [
-  { allowedMethods: ["GET"], path: "/api/me" },
-  { allowedMethods: ["POST"], path: "/api/me/profile" },
-  { allowedMethods: ["GET", "POST"], path: "/api/repos" },
-  { allowedMethods: ["GET", "PATCH", "DELETE"], path: "/api/repos/:owner/:repo" },
+  ...Object.values(coreRoutes),
   ...toHeadMethodRoutes(repoScaffoldRoutes),
   ...toHeadMethodRoutes(inventoryScaffoldRoutes),
   ...toHeadMethodRoutes(profileScaffoldRoutes),
@@ -132,9 +139,10 @@ const headMethodRoutes: HeadMethodRoute[] = [
 export async function handleApiRequest(
   request: Request,
   env: WorkerEnv,
-  options: WorkerApiOptions = {},
+  options?: WorkerApiOptions,
 ): Promise<Response> {
-  return createWorkerApiApp(options).fetch(request, env);
+  const app = options ? createWorkerApiApp(options) : defaultWorkerApiApp;
+  return app.fetch(request, env);
 }
 
 export function createWorkerApiApp(options: WorkerApiOptions = {}): Hono<WorkerApiHonoEnv> {
@@ -152,7 +160,7 @@ export function createWorkerApiApp(options: WorkerApiOptions = {}): Hono<WorkerA
   app.on(["GET", "HEAD"], "/api/health", (context) => handleHealth(context.req.raw));
   app.all("/api/health", () => methodNotAllowed(["GET", "HEAD"]));
 
-  app.get("/api/me", async (context) => {
+  app.get(coreRoutes.me.path, async (context) => {
     const sessionResult = await requireClerkSession(context.req.raw, context.env, "GET", options);
     if (!sessionResult.ok) {
       return sessionResult.response;
@@ -160,9 +168,9 @@ export function createWorkerApiApp(options: WorkerApiOptions = {}): Hono<WorkerA
 
     return handleGetMe(sessionResult.session, context.env, options);
   });
-  app.all("/api/me", () => methodNotAllowed(["GET"]));
+  app.all(coreRoutes.me.path, () => methodNotAllowed(coreRoutes.me.allowedMethods));
 
-  app.post("/api/me/profile", async (context) => {
+  app.post(coreRoutes.meProfile.path, async (context) => {
     const sessionResult = await requireClerkSession(context.req.raw, context.env, "POST", options);
     if (!sessionResult.ok) {
       return sessionResult.response;
@@ -170,10 +178,10 @@ export function createWorkerApiApp(options: WorkerApiOptions = {}): Hono<WorkerA
 
     return handlePostMeProfile(context.req.raw, sessionResult.session, context.env, options);
   });
-  app.all("/api/me/profile", () => methodNotAllowed(["POST"]));
+  app.all(coreRoutes.meProfile.path, () => methodNotAllowed(coreRoutes.meProfile.allowedMethods));
 
-  app.get("/api/repos", (context) => handleListRepositories(context.env, options));
-  app.post("/api/repos", async (context) => {
+  app.get(coreRoutes.repositories.path, (context) => handleListRepositories(context.env, options));
+  app.post(coreRoutes.repositories.path, async (context) => {
     const profileResult = await requireAuthenticatedProfile(
       context.req.raw,
       context.env,
@@ -186,9 +194,11 @@ export function createWorkerApiApp(options: WorkerApiOptions = {}): Hono<WorkerA
 
     return handlePostRepository(context.req.raw, profileResult.profile, context.env, options);
   });
-  app.all("/api/repos", () => methodNotAllowed(["GET", "POST"]));
+  app.all(coreRoutes.repositories.path, () =>
+    methodNotAllowed(coreRoutes.repositories.allowedMethods),
+  );
 
-  app.get("/api/repos/:owner/:repo", (context) => {
+  app.get(coreRoutes.repositoryDetail.path, (context) => {
     const params = getRepositoryParams(
       context.req.param("owner"),
       context.req.param("repo"),
@@ -206,7 +216,7 @@ export function createWorkerApiApp(options: WorkerApiOptions = {}): Hono<WorkerA
       options,
     );
   });
-  app.patch("/api/repos/:owner/:repo", async (context) => {
+  app.patch(coreRoutes.repositoryDetail.path, async (context) => {
     const params = getRepositoryParams(
       context.req.param("owner"),
       context.req.param("repo"),
@@ -235,7 +245,7 @@ export function createWorkerApiApp(options: WorkerApiOptions = {}): Hono<WorkerA
       options,
     );
   });
-  app.delete("/api/repos/:owner/:repo", async (context) => {
+  app.delete(coreRoutes.repositoryDetail.path, async (context) => {
     const params = getRepositoryParams(
       context.req.param("owner"),
       context.req.param("repo"),
@@ -263,7 +273,9 @@ export function createWorkerApiApp(options: WorkerApiOptions = {}): Hono<WorkerA
       options,
     );
   });
-  app.all("/api/repos/:owner/:repo", () => methodNotAllowed(["GET", "PATCH", "DELETE"]));
+  app.all(coreRoutes.repositoryDetail.path, () =>
+    methodNotAllowed(coreRoutes.repositoryDetail.allowedMethods),
+  );
 
   registerScaffoldRoutes(app, repoScaffoldRoutes, options);
   registerScaffoldRoutes(app, inventoryScaffoldRoutes, options);
@@ -273,6 +285,8 @@ export function createWorkerApiApp(options: WorkerApiOptions = {}): Hono<WorkerA
 
   return app;
 }
+
+const defaultWorkerApiApp = createWorkerApiApp();
 
 function handleHealth(request: Request): Response {
   const allowedMethods = ["GET", "HEAD"];
