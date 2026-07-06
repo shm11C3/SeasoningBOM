@@ -116,6 +116,15 @@ Rules:
 - `hazardous` means user marked it as dangerous and it should be treated as unavailable.
 - Unsupported / hazardous ingredients must be excluded from recommendations and shopping-list availability.
 
+### Cooking log privacy
+
+Cooking Log details can reveal life patterns. Apply repository visibility first, then author privacy:
+
+- public visitors can see only Cooking Logs whose author has `contribution_visibility = "public"`;
+- signed-in users can additionally see their own Cooking Logs;
+- `summary_only` / `private` Cooking Log details must not be shown to third parties;
+- creating a Cooking Log should create the matching `cooking_logged` Contribution event in the same D1 batch.
+
 ## Expected Source Layout
 
 Use this source shape unless an ADR changes it:

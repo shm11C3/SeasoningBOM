@@ -6,6 +6,11 @@ import {
   type ClerkSession,
 } from "../auth/clerk";
 import {
+  type CookingLogRouteOptions,
+  handleGetCookingLogs,
+  handlePostCookingLog,
+} from "./cookingLogs";
+import {
   handleDeleteInventory,
   handleListInventory,
   handlePatchInventory,
@@ -40,7 +45,8 @@ import type { WorkerEnv } from "./types";
 export type WorkerApiOptions = ClerkAuthenticationOptions &
   ProfileRouteOptions &
   InventoryRouteOptions &
-  RepositoryRouteOptions;
+  RepositoryRouteOptions &
+  CookingLogRouteOptions;
 
 type WorkerApiHonoEnv = {
   Bindings: WorkerEnv;
@@ -69,6 +75,10 @@ const coreRoutes = {
   repositoryDependencies: {
     allowedMethods: ["GET"],
     path: "/api/repos/:owner/:repo/dependencies",
+  },
+  repositoryCookingLogs: {
+    allowedMethods: ["GET", "POST"],
+    path: "/api/repos/:owner/:repo/cooking-logs",
   },
   inventory: { allowedMethods: ["GET", "POST"], path: "/api/inventory" },
   inventoryItem: { allowedMethods: ["PATCH", "DELETE"], path: "/api/inventory/:id" },
@@ -99,12 +109,6 @@ const repoScaffoldRoutes: ScaffoldRoute[] = [
     message: "Recipe repository API is not implemented yet.",
     path: "/api/repos/:owner/:repo/audit",
     protectedMethods: ["POST"],
-  },
-  {
-    message: "Recipe repository API is not implemented yet.",
-    path: "/api/repos/:owner/:repo/cooking-logs",
-    protectedMethods: ["POST"],
-    publicMethods: ["GET"],
   },
 ];
 
@@ -293,6 +297,57 @@ export function createWorkerApiApp(options: WorkerApiOptions = {}): Hono<WorkerA
   });
   app.all(coreRoutes.repositoryDependencies.path, () =>
     methodNotAllowed(coreRoutes.repositoryDependencies.allowedMethods),
+  );
+
+  app.get(coreRoutes.repositoryCookingLogs.path, (context) => {
+    const params = getRepositoryParams(
+      context.req.param("owner"),
+      context.req.param("repo"),
+      context.req.raw,
+    );
+    if (!params.ok) {
+      return params.response;
+    }
+
+    return handleGetCookingLogs(
+      context.req.raw,
+      params.ownerHandle,
+      params.slug,
+      context.env,
+      options,
+    );
+  });
+  app.post(coreRoutes.repositoryCookingLogs.path, async (context) => {
+    const params = getRepositoryParams(
+      context.req.param("owner"),
+      context.req.param("repo"),
+      context.req.raw,
+    );
+    if (!params.ok) {
+      return params.response;
+    }
+
+    const profileResult = await requireAuthenticatedProfile(
+      context.req.raw,
+      context.env,
+      "POST",
+      options,
+    );
+    if (!profileResult.ok) {
+      return profileResult.response;
+    }
+
+    return handlePostCookingLog(
+      context.req.raw,
+      params.ownerHandle,
+      params.slug,
+      profileResult.profile,
+      context.env,
+      options,
+    );
+  });
+  app.all(coreRoutes.repositoryCookingLogs.path, () =>
+    methodNotAllowed(coreRoutes.repositoryCookingLogs.allowedMethods),
   );
 
   app.get(coreRoutes.inventory.path, async (context) => {

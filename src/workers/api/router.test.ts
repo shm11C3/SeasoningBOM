@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type {
+  CloudContributionEvent,
+  CloudCookingLog,
+  CookingLogRepository,
+  CreateCookingLogWithContributionInput,
+} from "../../repositories/cloudflare-d1/D1CookingLogRepository";
+import type {
   CloudInventoryItem,
   CreateInventoryItemInput,
   InventoryItemRepository,
@@ -122,6 +128,17 @@ const recipeComponent = {
   ],
   unit: "box",
 } satisfies Awaited<ReturnType<RecipeComponentReadRepository["listByRepositoryId"]>>[number];
+
+const cookingLog: CloudCookingLog = {
+  authorHandle: "public-cook",
+  cookedAt: "2026-07-06T04:05:06.000Z",
+  createdAt: "2026-07-06T05:06:07.000Z",
+  id: "cook_public",
+  recipeVersion: "1.0.0",
+  repositoryId: "repo_public",
+  result: "cooked",
+  userId: "profile_other",
+};
 
 async function parseJson(response: Response) {
   return response.json() as Promise<unknown>;
@@ -552,6 +569,123 @@ describe("Worker API router", () => {
     });
     expect(response.status).toBe(405);
     expect(response.headers.get("allow")).toBe("GET");
+  });
+
+  it("returns repository cooking logs through the concrete Hono route", async () => {
+    const response = await handleApiRequest(
+      new Request("https://example.test/api/repos/test-user/public-curry/cooking-logs"),
+      env,
+      {
+        cookingLogs: createCookingLogRepository([cookingLog]),
+        recipeRepositories: createRecipeRepository([publicRecipeRepository]),
+      },
+    );
+
+    await expect(parseJson(response)).resolves.toEqual({
+      cookingLogs: [
+        expect.objectContaining({
+          authorHandle: "public-cook",
+          id: "cook_public",
+          result: "cooked",
+        }),
+      ],
+      repository: expect.objectContaining({
+        id: "repo_public",
+        slug: "public-curry",
+      }),
+    });
+    expect(response.status).toBe(200);
+  });
+
+  it("creates cooking logs through the authenticated concrete Hono route", async () => {
+    const cookingLogs = createCookingLogRepository([]);
+    const response = await handleApiRequest(
+      new Request("https://example.test/api/repos/test-user/public-curry/cooking-logs", {
+        body: JSON.stringify({
+          cookedAt: "2026-07-06T04:05:06.000Z",
+          result: "cooked",
+        }),
+        headers: {
+          authorization: "Bearer fake-session",
+        },
+        method: "POST",
+      }),
+      configuredEnv,
+      {
+        ...validSessionAuth,
+        cookingLogs,
+        createContributionEventId: () => "contribution_cook",
+        createCookingLogId: () => "cook_new",
+        now: () => new Date("2026-07-06T05:06:07.000Z"),
+        recipeRepositories: createRecipeRepository([publicRecipeRepository]),
+        userProfiles: createUserProfileRepository([userProfile]),
+      },
+    );
+
+    await expect(parseJson(response)).resolves.toEqual({
+      contributionEvent: expect.objectContaining({
+        eventType: "cooking_logged",
+        id: "contribution_cook",
+        occurredOn: "2026-07-06",
+      }),
+      cookingLog: expect.objectContaining({
+        authorHandle: "test-user",
+        id: "cook_new",
+        result: "cooked",
+      }),
+      repository: expect.objectContaining({
+        id: "repo_public",
+      }),
+    });
+    expect(response.status).toBe(201);
+    await expect(
+      cookingLogs.listVisibleForRepository({ repositoryId: "repo_public" }),
+    ).resolves.toHaveLength(1);
+  });
+
+  it("requires bearer auth for cooking log mutations", async () => {
+    const response = await handleApiRequest(
+      new Request("https://example.test/api/repos/test-user/public-curry/cooking-logs", {
+        body: JSON.stringify({ result: "cooked" }),
+        headers: {
+          cookie: "__session=fake-session",
+        },
+        method: "POST",
+      }),
+      configuredEnv,
+      {
+        ...validSessionAuth,
+        cookingLogs: createCookingLogRepository([]),
+        recipeRepositories: createRecipeRepository([publicRecipeRepository]),
+        userProfiles: createUserProfileRepository([userProfile]),
+      },
+    );
+
+    await expect(parseJson(response)).resolves.toEqual({
+      error: {
+        code: "not_authenticated",
+        message: "Sign in with Clerk to access this endpoint.",
+      },
+    });
+    expect(response.status).toBe(401);
+  });
+
+  it("rejects unsupported cooking log methods with an Allow header", async () => {
+    const response = await handleApiRequest(
+      new Request("https://example.test/api/repos/test-user/public-curry/cooking-logs", {
+        method: "DELETE",
+      }),
+      env,
+    );
+
+    await expect(parseJson(response)).resolves.toEqual({
+      error: {
+        code: "method_not_allowed",
+        message: "This HTTP method is not allowed.",
+      },
+    });
+    expect(response.status).toBe(405);
+    expect(response.headers.get("allow")).toBe("GET, POST");
   });
 
   it("creates repository metadata for the authenticated owner", async () => {
@@ -1259,6 +1393,50 @@ function createInventoryRepository(initialItems: CloudInventoryItem[]): Inventor
       }
       items[index] = item;
       return item;
+    },
+  };
+}
+
+function createCookingLogRepository(initialLogs: CloudCookingLog[]): CookingLogRepository {
+  const logs = [...initialLogs];
+
+  return {
+    async createWithContribution(input: CreateCookingLogWithContributionInput) {
+      const cookingLog: CloudCookingLog = {
+        authorDisplayName: input.authorDisplayName,
+        authorHandle: input.authorHandle,
+        cookedAt: input.cookedAt,
+        createdAt: input.now,
+        id: input.cookingLogId,
+        notes: input.notes,
+        recipeVersion: input.recipeVersion,
+        repositoryId: input.repositoryId,
+        result: input.result,
+        userId: input.userId,
+      };
+      const contributionEvent: CloudContributionEvent = {
+        contributionCount: 1,
+        eventType: "cooking_logged",
+        id: input.contributionEventId,
+        metadata: {
+          cookingLogId: input.cookingLogId,
+          recipeVersion: input.recipeVersion,
+          repositoryName: input.repositoryName,
+          repositoryOwnerHandle: input.repositoryOwnerHandle,
+          repositorySlug: input.repositorySlug,
+          result: input.result,
+        },
+        occurredAt: input.cookedAt,
+        occurredOn: input.occurredOn,
+        repositoryId: input.repositoryId,
+        userId: input.userId,
+        visibility: input.contributionVisibility,
+      };
+      logs.push(cookingLog);
+      return { contributionEvent, cookingLog };
+    },
+    async listVisibleForRepository(input) {
+      return logs.filter((log) => log.repositoryId === input.repositoryId);
     },
   };
 }

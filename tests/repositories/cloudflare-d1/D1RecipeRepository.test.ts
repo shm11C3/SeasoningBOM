@@ -142,6 +142,63 @@ describe("D1RecipeRepository", () => {
     await expect(recipes.findByOwnerAndSlug("test-user", "curry-rice")).resolves.toBeNull();
   });
 
+  it("deletes cooking logs and contribution events before repository metadata", async () => {
+    await recipes.create({
+      id: "repo_test",
+      name: "Curry Rice",
+      now: "2026-07-06T01:02:03.000Z",
+      ownerHandle: "test-user",
+      ownerUserId: "profile_test",
+      slug: "curry-rice",
+    });
+    sqlite
+      .prepare(
+        `INSERT INTO cooking_logs (
+           id, user_id, repository_id, recipe_version, result, notes, cooked_at, created_at
+         )
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        "cook_test",
+        "profile_test",
+        "repo_test",
+        "0.1.0",
+        "cooked",
+        null,
+        "2026-07-06T04:05:06.000Z",
+        "2026-07-06T05:06:07.000Z",
+      );
+    sqlite
+      .prepare(
+        `INSERT INTO contribution_events (
+           id, user_id, event_type, repository_id, occurred_on, occurred_at,
+           contribution_count, visibility, metadata_json
+         )
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        "contribution_test",
+        "profile_test",
+        "cooking_logged",
+        "repo_test",
+        "2026-07-06",
+        "2026-07-06T04:05:06.000Z",
+        1,
+        "summary_only",
+        "{}",
+      );
+
+    await recipes.delete("repo_test");
+
+    expect(sqlite.prepare("SELECT COUNT(*) AS count FROM cooking_logs").get()).toEqual({
+      count: 0,
+    });
+    expect(sqlite.prepare("SELECT COUNT(*) AS count FROM contribution_events").get()).toEqual({
+      count: 0,
+    });
+    await expect(recipes.findByOwnerAndSlug("test-user", "curry-rice")).resolves.toBeNull();
+  });
+
   it("enforces owner scoped slug uniqueness", async () => {
     await recipes.create({
       id: "repo_first",
@@ -167,8 +224,19 @@ describe("D1RecipeRepository", () => {
 
 function createSqliteD1(db: DatabaseSync): D1Database {
   return {
-    batch: async () => {
-      throw new Error("batch is not implemented in this test adapter");
+    batch: async <T = unknown>(statements: D1PreparedStatement[]) => {
+      db.exec("BEGIN TRANSACTION");
+      try {
+        const results: D1Result<T>[] = [];
+        for (const statement of statements) {
+          results.push(await statement.run<T>());
+        }
+        db.exec("COMMIT");
+        return results;
+      } catch (error) {
+        db.exec("ROLLBACK");
+        throw error;
+      }
     },
     exec: async (query) => {
       db.exec(query);

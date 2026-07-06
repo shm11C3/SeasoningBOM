@@ -113,7 +113,9 @@ Current implementation checkpoint:
 - Repository dependencies use the same public / unlisted / private read authorization as repository metadata. Component and dependency mutation endpoints are still not implemented.
 - `GET /api/inventory`, `POST /api/inventory`, `PATCH /api/inventory/:id`, and `DELETE /api/inventory/:id` are wired to D1 `inventory_items` through `D1InventoryRepository`.
 - Inventory endpoints require a bootstrapped Clerk-backed profile and are scoped to the authenticated user. Inventory mutations require bearer tokens; `__session` cookies are limited to protected non-mutating reads.
-- Protected endpoints reject missing or invalid sessions before reaching planned handlers. Component/dependency mutations, star, fork, and contribution CRUD endpoints are still not implemented.
+- `GET /api/repos/:owner/:repo/cooking-logs` and `POST /api/repos/:owner/:repo/cooking-logs` are wired to D1 `cooking_logs` through `D1CookingLogRepository`.
+- Creating a cooking log also creates a `cooking_logged` contribution event in the same D1 batch. Public cooking-log reads expose only logs from users with `contribution_visibility = "public"` plus the viewer's own logs.
+- Protected endpoints reject missing or invalid sessions before reaching planned handlers. Component/dependency mutations, star, fork, profile contribution reads, and non-cooking contribution automation are still not implemented.
 
 Exit criteria:
 
