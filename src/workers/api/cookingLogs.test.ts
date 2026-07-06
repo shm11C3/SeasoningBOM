@@ -417,6 +417,31 @@ describe("cooking log API handlers", () => {
     expect(response.status).toBe(500);
   });
 
+  it("returns not found when creating a cooking log for a missing repository", async () => {
+    const response = await handlePostCookingLog(
+      new Request("https://example.test/api/repos/test-user/missing-curry/cooking-logs", {
+        body: JSON.stringify({ result: "cooked" }),
+        method: "POST",
+      }),
+      "test-user",
+      "missing-curry",
+      userProfile,
+      env,
+      {
+        cookingLogs: createCookingLogRepository([]),
+        recipeRepositories: createRecipeRepository([]),
+      },
+    );
+
+    await expect(parseJson(response)).resolves.toEqual({
+      error: {
+        code: "not_found",
+        message: "Repository not found.",
+      },
+    });
+    expect(response.status).toBe(404);
+  });
+
   it("returns a JSON error when the write repository fails", async () => {
     const response = await handlePostCookingLog(
       new Request("https://example.test/api/repos/test-user/public-curry/cooking-logs", {
