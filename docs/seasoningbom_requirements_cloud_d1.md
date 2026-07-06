@@ -750,6 +750,10 @@ GET  /api/repos/:owner/:repo/cooking-logs
 POST /api/repos/:owner/:repo/cooking-logs
 ```
 
+`GET` は Repository の public / private / unlisted 公開範囲を先に確認する。返却する Cooking Log 詳細は、投稿者の `contribution_visibility` が `public` のものと、閲覧者本人が投稿したものに限定する。`summary_only` / `private` のユーザーの Cooking Log 詳細を第三者へ公開しない。
+
+`POST` は Bearer token による Clerk session と bootstrapped profile を必須とする。作成時は現在の Repository version を `recipe_version` として保存し、同じ D1 batch で `cooking_logged` contribution event を 1 件作成する。
+
 ### 16.6 Contributions
 
 ```text
