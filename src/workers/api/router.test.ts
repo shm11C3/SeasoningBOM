@@ -524,6 +524,98 @@ describe("Worker API router", () => {
     expect(response.status).toBe(409);
   });
 
+  it("updates repository metadata for the owner", async () => {
+    const recipeRepositories = createRecipeRepository([publicRecipeRepository]);
+    const response = await handleApiRequest(
+      new Request("https://example.test/api/repos/test-user/public-curry", {
+        body: JSON.stringify({
+          name: "Renamed Curry",
+          slug: "renamed-curry",
+          visibility: "private",
+        }),
+        headers: {
+          authorization: "Bearer fake-session",
+        },
+        method: "PATCH",
+      }),
+      configuredEnv,
+      {
+        ...validSessionAuth,
+        now: () => new Date("2026-07-06T02:03:04.000Z"),
+        recipeRepositories,
+        userProfiles: createUserProfileRepository([userProfile]),
+      },
+    );
+
+    await expect(parseJson(response)).resolves.toEqual({
+      repository: expect.objectContaining({
+        name: "Renamed Curry",
+        ownerHandle: "test-user",
+        slug: "renamed-curry",
+        updatedAt: "2026-07-06T02:03:04.000Z",
+        visibility: "private",
+      }),
+    });
+    expect(response.status).toBe(200);
+    await expect(
+      recipeRepositories.findByOwnerAndSlug("test-user", "renamed-curry"),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        id: "repo_public",
+      }),
+    );
+  });
+
+  it("hides repository updates from signed-in non-owners", async () => {
+    const response = await handleApiRequest(
+      new Request("https://example.test/api/repos/test-user/public-curry", {
+        body: JSON.stringify({ name: "Nope" }),
+        headers: {
+          authorization: "Bearer fake-session",
+        },
+        method: "PATCH",
+      }),
+      configuredEnv,
+      {
+        ...validSessionAuth,
+        recipeRepositories: createRecipeRepository([publicRecipeRepository]),
+        userProfiles: createUserProfileRepository([otherUserProfile]),
+      },
+    );
+
+    await expect(parseJson(response)).resolves.toEqual({
+      error: {
+        code: "not_found",
+        message: "Repository not found.",
+      },
+    });
+    expect(response.status).toBe(404);
+  });
+
+  it("deletes repository metadata for the owner", async () => {
+    const recipeRepositories = createRecipeRepository([publicRecipeRepository]);
+    const response = await handleApiRequest(
+      new Request("https://example.test/api/repos/test-user/public-curry", {
+        headers: {
+          authorization: "Bearer fake-session",
+        },
+        method: "DELETE",
+      }),
+      configuredEnv,
+      {
+        ...validSessionAuth,
+        recipeRepositories,
+        userProfiles: createUserProfileRepository([userProfile]),
+      },
+    );
+
+    expect(response.status).toBe(204);
+    await expect(response.text()).resolves.toBe("");
+    await expect(
+      recipeRepositories.findByOwnerAndSlug("test-user", "public-curry"),
+    ).resolves.toBeNull();
+  });
+
   it("keeps repository mutation routes authenticated", async () => {
     const unauthenticated = await handleApiRequest(
       new Request("https://example.test/api/repos", { method: "POST" }),
@@ -735,6 +827,12 @@ function createRecipeRepository(
       repositories.push(repository);
       return repository;
     },
+    async delete(id) {
+      const index = repositories.findIndex((repository) => repository.id === id);
+      if (index >= 0) {
+        repositories.splice(index, 1);
+      }
+    },
     async findByOwnerAndSlug(ownerHandle, slug) {
       return (
         repositories.find(
@@ -744,6 +842,31 @@ function createRecipeRepository(
     },
     async listPublic() {
       return repositories.filter((repository) => repository.visibility === "public");
+    },
+    async update(input) {
+      const repository: CloudRecipeRepository = {
+        createdAt: input.createdAt,
+        description: input.description,
+        id: input.id,
+        license: input.license,
+        maintainer: input.ownerHandle,
+        name: input.name,
+        ownerHandle: input.ownerHandle,
+        ownerUserId: input.ownerUserId,
+        readme: input.readme,
+        servings: input.servings,
+        slug: input.slug,
+        sourceRepositoryId: input.sourceRepositoryId,
+        tags: [],
+        updatedAt: input.now,
+        version: input.version,
+        visibility: input.visibility,
+      };
+      const index = repositories.findIndex((item) => item.id === input.id);
+      if (index >= 0) {
+        repositories[index] = repository;
+      }
+      return repository;
     },
   };
 }

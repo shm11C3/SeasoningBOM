@@ -107,9 +107,9 @@ Current implementation checkpoint:
 - `src/workers/api/` contains the Worker fetch entrypoint, health route, planned API route scaffold, and JSON error responses.
 - `src/workers/auth/clerk.ts` verifies Clerk session tokens with `@clerk/backend`, `CLERK_JWT_KEY`, and `CLERK_AUTHORIZED_PARTIES`, requiring a user subject, session id, and allowed `azp`.
 - `GET /api/me` and `POST /api/me/profile` are wired to D1 `user_profiles` through `D1UserProfileRepository`.
-- `GET /api/repos`, `GET /api/repos/:owner/:repo`, and `POST /api/repos` are wired to D1 `recipe_repositories` metadata through `D1RecipeRepository`.
+- `GET /api/repos`, `GET /api/repos/:owner/:repo`, `POST /api/repos`, `PATCH /api/repos/:owner/:repo`, and `DELETE /api/repos/:owner/:repo` are wired to D1 `recipe_repositories` metadata through `D1RecipeRepository`.
 - Public repositories can be listed and fetched without login. Unlisted repositories can be fetched by exact URL but are excluded from listings. Private repository metadata is owner-only.
-- Protected endpoints reject missing or invalid sessions before reaching planned handlers. Mutation routes require bearer tokens; `__session` cookies are limited to protected non-mutating reads. Repository PATCH/DELETE, components/dependencies, inventory, star, fork, and contribution CRUD endpoints are still not implemented.
+- Protected endpoints reject missing or invalid sessions before reaching planned handlers. Mutation routes require bearer tokens; `__session` cookies are limited to protected non-mutating reads. Components/dependencies, inventory, star, fork, and contribution CRUD endpoints are still not implemented.
 
 Exit criteria:
 

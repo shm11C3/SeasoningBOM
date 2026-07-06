@@ -98,6 +98,50 @@ describe("D1RecipeRepository", () => {
     ]);
   });
 
+  it("updates repository metadata", async () => {
+    const created = await recipes.create({
+      id: "repo_test",
+      name: "Curry Rice",
+      now: "2026-07-06T01:02:03.000Z",
+      ownerHandle: "test-user",
+      ownerUserId: "profile_test",
+      slug: "curry-rice",
+    });
+
+    const updated = await recipes.update({
+      ...created,
+      name: "Updated Curry",
+      slug: "updated-curry",
+      visibility: "private",
+      now: "2026-07-06T02:03:04.000Z",
+    });
+
+    await expect(recipes.findByOwnerAndSlug("test-user", "curry-rice")).resolves.toBeNull();
+    await expect(recipes.findByOwnerAndSlug("test-user", "updated-curry")).resolves.toEqual(
+      updated,
+    );
+    expect(updated).toMatchObject({
+      name: "Updated Curry",
+      updatedAt: "2026-07-06T02:03:04.000Z",
+      visibility: "private",
+    });
+  });
+
+  it("deletes repository metadata", async () => {
+    await recipes.create({
+      id: "repo_test",
+      name: "Curry Rice",
+      now: "2026-07-06T01:02:03.000Z",
+      ownerHandle: "test-user",
+      ownerUserId: "profile_test",
+      slug: "curry-rice",
+    });
+
+    await recipes.delete("repo_test");
+
+    await expect(recipes.findByOwnerAndSlug("test-user", "curry-rice")).resolves.toBeNull();
+  });
+
   it("enforces owner scoped slug uniqueness", async () => {
     await recipes.create({
       id: "repo_first",

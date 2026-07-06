@@ -9,7 +9,13 @@ import type {
   UserProfileRepository,
 } from "../../repositories/cloudflare-d1/D1UserProfileRepository";
 import type { ClerkAuthenticationOptions } from "../auth/clerk";
-import { handleGetRepository, handleListRepositories, handlePostRepository } from "./repositories";
+import {
+  handleDeleteRepository,
+  handleGetRepository,
+  handleListRepositories,
+  handlePatchRepository,
+  handlePostRepository,
+} from "./repositories";
 import type { D1Database, WorkerEnv } from "./types";
 
 const env: WorkerEnv = {
@@ -342,6 +348,134 @@ describe("repository API handlers", () => {
     });
     expect(response.status).toBe(500);
   });
+
+  it("rejects empty repository updates", async () => {
+    const response = await handlePatchRepository(
+      new Request("https://example.test/api/repos/test-user/private-curry", {
+        body: JSON.stringify({}),
+        method: "PATCH",
+      }),
+      "test-user",
+      "private-curry",
+      owner,
+      env,
+      {
+        recipeRepositories: createRecipeRepository([privateRepository]),
+      },
+    );
+
+    await expect(parseJson(response)).resolves.toEqual({
+      error: {
+        code: "validation_failed",
+        message: "At least one repository field must be provided.",
+      },
+    });
+    expect(response.status).toBe(400);
+  });
+
+  it.each([
+    null,
+    "",
+  ])("rejects explicit blank repository visibility updates %#", async (visibility) => {
+    const response = await handlePatchRepository(
+      new Request("https://example.test/api/repos/test-user/private-curry", {
+        body: JSON.stringify({ visibility }),
+        method: "PATCH",
+      }),
+      "test-user",
+      "private-curry",
+      owner,
+      env,
+      {
+        recipeRepositories: createRecipeRepository([privateRepository]),
+      },
+    );
+
+    await expect(parseJson(response)).resolves.toEqual({
+      error: {
+        code: "validation_failed",
+        message: "Visibility must be public, private, or unlisted.",
+      },
+    });
+    expect(response.status).toBe(400);
+  });
+
+  it("returns conflict when repository update moves to an existing slug", async () => {
+    const existingRepository: CloudRecipeRepository = {
+      ...privateRepository,
+      id: "repo_existing",
+      slug: "existing-curry",
+    };
+    const response = await handlePatchRepository(
+      new Request("https://example.test/api/repos/test-user/private-curry", {
+        body: JSON.stringify({ slug: "existing-curry" }),
+        method: "PATCH",
+      }),
+      "test-user",
+      "private-curry",
+      owner,
+      env,
+      {
+        recipeRepositories: createRecipeRepository([privateRepository, existingRepository]),
+      },
+    );
+
+    await expect(parseJson(response)).resolves.toEqual({
+      error: {
+        code: "repository_already_exists",
+        message: "A repository with this owner and slug already exists.",
+      },
+    });
+    expect(response.status).toBe(409);
+  });
+
+  it("returns a JSON error when repository update fails", async () => {
+    const response = await handlePatchRepository(
+      new Request("https://example.test/api/repos/test-user/private-curry", {
+        body: JSON.stringify({ name: "Updated Curry" }),
+        method: "PATCH",
+      }),
+      "test-user",
+      "private-curry",
+      owner,
+      env,
+      {
+        recipeRepositories: {
+          ...createRecipeRepository([privateRepository]),
+          async update() {
+            throw new Error("D1 unavailable");
+          },
+        },
+      },
+    );
+
+    await expect(parseJson(response)).resolves.toEqual({
+      error: {
+        code: "internal_error",
+        message: "Failed to update repository.",
+      },
+    });
+    expect(response.status).toBe(500);
+  });
+
+  it("returns a JSON error when repository delete fails", async () => {
+    const response = await handleDeleteRepository("test-user", "private-curry", owner, env, {
+      recipeRepositories: {
+        ...createRecipeRepository([privateRepository]),
+        async delete() {
+          throw new Error("D1 unavailable");
+        },
+      },
+    });
+
+    await expect(parseJson(response)).resolves.toEqual({
+      error: {
+        code: "internal_error",
+        message: "Failed to delete repository.",
+      },
+    });
+    expect(response.status).toBe(500);
+  });
 });
 
 function createValidPostRequest(overrides: Record<string, unknown> = {}): Request {
@@ -383,6 +517,12 @@ function createRecipeRepository(
       repositories.push(repository);
       return repository;
     },
+    async delete(id) {
+      const index = repositories.findIndex((repository) => repository.id === id);
+      if (index >= 0) {
+        repositories.splice(index, 1);
+      }
+    },
     async findByOwnerAndSlug(ownerHandle, slug) {
       return (
         repositories.find(
@@ -392,6 +532,31 @@ function createRecipeRepository(
     },
     async listPublic() {
       return repositories.filter((repository) => repository.visibility === "public");
+    },
+    async update(input) {
+      const repository: CloudRecipeRepository = {
+        createdAt: input.createdAt,
+        description: input.description,
+        id: input.id,
+        license: input.license,
+        maintainer: input.ownerHandle,
+        name: input.name,
+        ownerHandle: input.ownerHandle,
+        ownerUserId: input.ownerUserId,
+        readme: input.readme,
+        servings: input.servings,
+        slug: input.slug,
+        sourceRepositoryId: input.sourceRepositoryId,
+        tags: [],
+        updatedAt: input.now,
+        version: input.version,
+        visibility: input.visibility,
+      };
+      const index = repositories.findIndex((item) => item.id === input.id);
+      if (index >= 0) {
+        repositories[index] = repository;
+      }
+      return repository;
     },
   };
 }
