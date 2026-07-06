@@ -211,7 +211,24 @@ export class D1RecipeRepository implements RecipeRepositoryMetadataRepository {
   }
 
   async delete(id: string): Promise<void> {
-    await this.db.prepare("DELETE FROM recipe_repositories WHERE id = ?").bind(id).run();
+    await this.db.batch([
+      this.db
+        .prepare(`DELETE FROM ingredient_dependencies
+          WHERE component_id IN (
+            SELECT id FROM recipe_components WHERE repository_id = ?
+          )`)
+        .bind(id),
+      this.db.prepare("DELETE FROM recipe_components WHERE repository_id = ?").bind(id),
+      this.db.prepare("DELETE FROM repository_stars WHERE repository_id = ?").bind(id),
+      this.db.prepare("DELETE FROM contribution_events WHERE repository_id = ?").bind(id),
+      this.db.prepare("DELETE FROM cooking_logs WHERE repository_id = ?").bind(id),
+      this.db
+        .prepare(
+          "UPDATE recipe_repositories SET source_repository_id = NULL WHERE source_repository_id = ?",
+        )
+        .bind(id),
+      this.db.prepare("DELETE FROM recipe_repositories WHERE id = ?").bind(id),
+    ]);
   }
 }
 

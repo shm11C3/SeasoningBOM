@@ -9,6 +9,8 @@ import type {
 type SqliteValue = bigint | null | number | string;
 
 export function createSqliteD1(db: DatabaseSync): D1Database {
+  db.exec("PRAGMA foreign_keys = ON");
+
   return {
     batch: async <T = unknown>(statements: D1PreparedStatement[]) => {
       db.exec("BEGIN TRANSACTION");

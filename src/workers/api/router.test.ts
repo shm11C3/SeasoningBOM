@@ -602,6 +602,33 @@ describe("Worker API router", () => {
     expect(response.status).toBe(401);
   });
 
+  it("rejects Clerk cookies for dependency replacement", async () => {
+    const response = await handleApiRequest(
+      new Request("https://example.test/api/repos/test-user/public-curry/dependencies", {
+        body: JSON.stringify({ components: [] }),
+        headers: {
+          cookie: "__session=fake-session",
+        },
+        method: "PUT",
+      }),
+      configuredEnv,
+      {
+        ...validSessionAuth,
+        recipeComponents: createRecipeComponentRepository([]),
+        recipeRepositories: createRecipeRepository([publicRecipeRepository]),
+        userProfiles: createUserProfileRepository([userProfile]),
+      },
+    );
+
+    await expect(parseJson(response)).resolves.toEqual({
+      error: {
+        code: "not_authenticated",
+        message: "Sign in with Clerk to access this endpoint.",
+      },
+    });
+    expect(response.status).toBe(401);
+  });
+
   it("rejects unsupported dependency methods with an Allow header", async () => {
     const response = await handleApiRequest(
       new Request("https://example.test/api/repos/test-user/public-curry/dependencies", {

@@ -180,6 +180,7 @@ Use the right test layer for the risk:
 - IndexedDB persistence, backup import/export, and reload durability should have Playwright E2E coverage.
 - For the local prototype, prefer proving persistence behavior through UI actions plus reload/export assertions before reaching into IndexedDB directly.
 - Cloud D1 access-control behavior should be covered at the API/Worker layer and with E2E tests for public/private/unlisted visibility.
+- For D1 batch writes, check current Cloudflare D1 query, batch, and bound-parameter limits. Keep MVP write batches inside the free-tier query budget unless docs explicitly justify a paid-tier assumption.
 
 When changing `src/repositories/`, `src/db/`, or backup flows, run:
 

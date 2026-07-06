@@ -135,6 +135,114 @@ describe("D1RecipeRepository", () => {
     await expect(recipes.findByOwnerAndSlug("test-user", "curry-rice")).resolves.toBeNull();
   });
 
+  it("deletes repository child rows before deleting repository metadata", async () => {
+    await recipes.create({
+      id: "repo_source",
+      name: "Source Curry",
+      now: "2026-07-06T01:02:03.000Z",
+      ownerHandle: "test-user",
+      ownerUserId: "profile_test",
+      slug: "source-curry",
+    });
+    await recipes.create({
+      id: "repo_fork",
+      name: "Forked Curry",
+      now: "2026-07-06T01:02:03.000Z",
+      ownerHandle: "test-user",
+      ownerUserId: "profile_test",
+      slug: "forked-curry",
+      sourceRepositoryId: "repo_source",
+    });
+    sqlite
+      .prepare(
+        `INSERT INTO recipe_components (
+           id, repository_id, ingredient_name, quantity, unit, dependency_type,
+           required, allergens_json, alternatives_json, created_at, updated_at
+         )
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        "component_source",
+        "repo_source",
+        "curry roux",
+        1,
+        "box",
+        "required",
+        1,
+        "[]",
+        "[]",
+        "2026-07-06T01:02:03.000Z",
+        "2026-07-06T01:02:03.000Z",
+      );
+    sqlite
+      .prepare(
+        `INSERT INTO ingredient_dependencies (
+           id, component_id, dependency_name, dependency_type, allergens_json, notes
+         )
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+      .run("dependency_source", "component_source", "milk", "transitive", "[]", null);
+    sqlite
+      .prepare("INSERT INTO repository_stars (user_id, repository_id, created_at) VALUES (?, ?, ?)")
+      .run("profile_test", "repo_source", "2026-07-06T01:02:03.000Z");
+    sqlite
+      .prepare(
+        `INSERT INTO contribution_events (
+           id, user_id, event_type, repository_id, occurred_on, occurred_at
+         )
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        "contribution_source",
+        "profile_test",
+        "component_added",
+        "repo_source",
+        "2026-07-06",
+        "2026-07-06T01:02:03.000Z",
+      );
+    sqlite
+      .prepare(
+        `INSERT INTO cooking_logs (
+           id, user_id, repository_id, recipe_version, result, cooked_at, created_at
+         )
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        "cooking_source",
+        "profile_test",
+        "repo_source",
+        "0.1.0",
+        "success",
+        "2026-07-06T01:02:03.000Z",
+        "2026-07-06T01:02:03.000Z",
+      );
+
+    await recipes.delete("repo_source");
+
+    await expect(recipes.findByOwnerAndSlug("test-user", "source-curry")).resolves.toBeNull();
+    await expect(recipes.findByOwnerAndSlug("test-user", "forked-curry")).resolves.toEqual(
+      expect.objectContaining({
+        id: "repo_fork",
+        sourceRepositoryId: undefined,
+      }),
+    );
+    expect(sqlite.prepare("SELECT COUNT(*) AS count FROM recipe_components").get()).toEqual({
+      count: 0,
+    });
+    expect(sqlite.prepare("SELECT COUNT(*) AS count FROM ingredient_dependencies").get()).toEqual({
+      count: 0,
+    });
+    expect(sqlite.prepare("SELECT COUNT(*) AS count FROM repository_stars").get()).toEqual({
+      count: 0,
+    });
+    expect(sqlite.prepare("SELECT COUNT(*) AS count FROM contribution_events").get()).toEqual({
+      count: 0,
+    });
+    expect(sqlite.prepare("SELECT COUNT(*) AS count FROM cooking_logs").get()).toEqual({
+      count: 0,
+    });
+  });
+
   it("enforces owner scoped slug uniqueness", async () => {
     await recipes.create({
       id: "repo_first",

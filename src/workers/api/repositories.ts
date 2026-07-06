@@ -107,6 +107,7 @@ const allergenSet = new Set<string>(allergens);
 const dependencyTypeSet = new Set<string>(dependencyTypes);
 const ingredientDependencyTypes = ["transitive", "substitute", "peer"] as const;
 const ingredientDependencyTypeSet = new Set<string>(ingredientDependencyTypes);
+const maxDependencyReplacementRows = 38;
 const repositoryVisibilitySet = new Set<string>(repositoryVisibilities);
 const unitSet = new Set<string>(units);
 const updateRepositoryFields = [
@@ -626,12 +627,13 @@ function normalizeReplaceRepositoryDependenciesBody(
     return { message: "Components must be an array.", ok: false };
   }
 
-  if (body.components.length > 200) {
-    return { message: "Components must contain 200 items or fewer.", ok: false };
+  if (body.components.length > maxDependencyReplacementRows) {
+    return { message: "Components must contain 38 items or fewer.", ok: false };
   }
 
   const componentIds = new Set<string>();
   const components: RecipeComponent[] = [];
+  let replacementRows = 0;
 
   for (const [index, value] of body.components.entries()) {
     const component = normalizeRecipeComponentBody(value, repositoryId, options);
@@ -644,6 +646,14 @@ function normalizeReplaceRepositoryDependenciesBody(
     }
 
     componentIds.add(component.value.id);
+    replacementRows += 1 + component.value.transitiveDependencies.length;
+    if (replacementRows > maxDependencyReplacementRows) {
+      return {
+        message: "Components and transitive dependencies must contain 38 total rows or fewer.",
+        ok: false,
+      };
+    }
+
     components.push(component.value);
   }
 
@@ -736,8 +746,8 @@ function normalizeIngredientDependencies(
     return { message: "Transitive dependencies must be an array.", ok: false };
   }
 
-  if (value.length > 50) {
-    return { message: "Transitive dependencies must contain 50 items or fewer.", ok: false };
+  if (value.length > maxDependencyReplacementRows) {
+    return { message: "Transitive dependencies must contain 38 items or fewer.", ok: false };
   }
 
   const dependencies: IngredientDependency[] = [];

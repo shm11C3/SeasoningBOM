@@ -493,7 +493,7 @@ describe("repository API handlers", () => {
     },
     {
       body: { components: Array.from({ length: 201 }, () => createDependencyComponentBody()) },
-      message: "Components must contain 200 items or fewer.",
+      message: "Components must contain 38 items or fewer.",
     },
     {
       body: { components: [null] },
@@ -544,6 +544,19 @@ describe("repository API handlers", () => {
     {
       body: { components: [createDependencyComponentBody({ transitiveDependencies: "soy" })] },
       message: "Component 1: Transitive dependencies must be an array.",
+    },
+    {
+      body: {
+        components: [
+          createDependencyComponentBody({
+            transitiveDependencies: Array.from({ length: 38 }, (_, index) => ({
+              dependencyType: "transitive",
+              name: `dependency-${index}`,
+            })),
+          }),
+        ],
+      },
+      message: "Components and transitive dependencies must contain 38 total rows or fewer.",
     },
     {
       body: { components: [createDependencyComponentBody({ transitiveDependencies: [null] })] },

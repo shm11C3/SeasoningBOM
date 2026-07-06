@@ -137,6 +137,7 @@ Production rules:
 - Repository dependency reads and full-manifest replacements are handled by `D1RecipeComponentRepository` and exposed through `GET /api/repos/:owner/:repo/dependencies` and `PUT /api/repos/:owner/:repo/dependencies`.
 - Repository dependency reads follow the same public / unlisted / private authorization boundary as repository metadata.
 - Repository dependency replacements are owner-only and require Authorization bearer tokens. Clerk `__session` cookies are not accepted for this mutation.
+- Repository dependency replacements are capped at 38 total component/dependency rows so the D1 batch stays within the free-tier query budget after auth/profile/repository lookups.
 - `inventory_items` CRUD is handled by `D1InventoryRepository` and Workers API handlers.
 - `inventory_items` are always scoped to the authenticated user; requests cannot choose another inventory owner.
 - Inventory mutations require Authorization bearer tokens. Clerk `__session` cookies are limited to protected non-mutating reads until explicit CSRF handling is added.
