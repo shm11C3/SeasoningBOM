@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { RecipeComponentReadRepository } from "../../repositories/cloudflare-d1/D1RecipeComponentRepository";
+import type { RecipeComponentWriteRepository } from "../../repositories/cloudflare-d1/D1RecipeComponentRepository";
 import type {
   CloudRecipeRepository,
   CreateRecipeRepositoryInput,
@@ -17,6 +17,7 @@ import {
   handleListRepositories,
   handlePatchRepository,
   handlePostRepository,
+  handlePutRepositoryDependencies,
 } from "./repositories";
 import type { D1Database, WorkerEnv } from "./types";
 
@@ -78,7 +79,7 @@ const recipeComponent = {
     },
   ],
   unit: "box",
-} satisfies Awaited<ReturnType<RecipeComponentReadRepository["listByRepositoryId"]>>[number];
+} satisfies Awaited<ReturnType<RecipeComponentWriteRepository["listByRepositoryId"]>>[number];
 
 async function parseJson(response: Response) {
   return response.json() as Promise<unknown>;
@@ -324,6 +325,9 @@ describe("repository API handlers", () => {
           async listByRepositoryId() {
             throw new Error("D1 unavailable");
           },
+          async replaceByRepositoryId() {
+            return [];
+          },
         },
         recipeRepositories: createRecipeRepository([privateRepository]),
         userProfiles: createUserProfileRepository([owner]),
@@ -334,6 +338,335 @@ describe("repository API handlers", () => {
       error: {
         code: "internal_error",
         message: "Failed to load dependencies.",
+      },
+    });
+    expect(response.status).toBe(500);
+  });
+
+  it("replaces repository dependencies for the authenticated owner", async () => {
+    const recipeComponents = createRecipeComponentRepository([recipeComponent]);
+    const response = await handlePutRepositoryDependencies(
+      new Request("https://example.test/api/repos/test-user/private-curry/dependencies", {
+        body: JSON.stringify({
+          components: [
+            {
+              allergens: ["wheat", "wheat"],
+              alternatives: ["homemade roux"],
+              dependencyType: "required",
+              id: "component_spice",
+              ingredientName: "spice mix",
+              quantity: 2,
+              required: false,
+              transitiveDependencies: [
+                {
+                  allergens: ["soy"],
+                  dependencyType: "transitive",
+                  name: "soy lecithin",
+                  notes: "Check the packet.",
+                },
+              ],
+              unit: "pack",
+            },
+          ],
+        }),
+        method: "PUT",
+      }),
+      "test-user",
+      "private-curry",
+      owner,
+      env,
+      {
+        now: () => new Date("2026-07-06T02:03:04.000Z"),
+        recipeComponents,
+        recipeRepositories: createRecipeRepository([privateRepository]),
+      },
+    );
+
+    await expect(parseJson(response)).resolves.toEqual({
+      components: [
+        {
+          allergens: ["wheat"],
+          alternatives: ["homemade roux"],
+          dependencyType: "required",
+          id: "component_spice",
+          ingredientName: "spice mix",
+          quantity: 2,
+          required: false,
+          transitiveDependencies: [
+            {
+              allergens: ["soy"],
+              dependencyType: "transitive",
+              name: "soy lecithin",
+              notes: "Check the packet.",
+            },
+          ],
+          unit: "pack",
+        },
+      ],
+      repository: expect.objectContaining({
+        id: "repo_private",
+        slug: "private-curry",
+      }),
+    });
+    expect(response.status).toBe(200);
+    await expect(recipeComponents.listByRepositoryId("repo_private")).resolves.toEqual([
+      expect.objectContaining({
+        id: "component_spice",
+        recipeId: "repo_private",
+      }),
+    ]);
+  });
+
+  it("generates missing component ids when replacing dependencies", async () => {
+    const response = await handlePutRepositoryDependencies(
+      new Request("https://example.test/api/repos/test-user/private-curry/dependencies", {
+        body: JSON.stringify({
+          components: [
+            {
+              dependencyType: "required",
+              ingredientName: "rice",
+              quantity: 2,
+              unit: "go",
+            },
+          ],
+        }),
+        method: "PUT",
+      }),
+      "test-user",
+      "private-curry",
+      owner,
+      env,
+      {
+        createRecipeComponentId: () => "component_generated",
+        recipeComponents: createRecipeComponentRepository([]),
+        recipeRepositories: createRecipeRepository([privateRepository]),
+      },
+    );
+
+    await expect(parseJson(response)).resolves.toEqual({
+      components: [
+        expect.objectContaining({
+          id: "component_generated",
+          ingredientName: "rice",
+          required: true,
+          transitiveDependencies: [],
+        }),
+      ],
+      repository: expect.objectContaining({ id: "repo_private" }),
+    });
+    expect(response.status).toBe(200);
+  });
+
+  it("keeps dependency replacement owner-only", async () => {
+    const response = await handlePutRepositoryDependencies(
+      new Request("https://example.test/api/repos/test-user/private-curry/dependencies", {
+        body: JSON.stringify({ components: [] }),
+        method: "PUT",
+      }),
+      "test-user",
+      "private-curry",
+      { ...owner, id: "profile_other" },
+      env,
+      {
+        recipeComponents: createRecipeComponentRepository([recipeComponent]),
+        recipeRepositories: createRecipeRepository([privateRepository]),
+      },
+    );
+
+    await expect(parseJson(response)).resolves.toEqual({
+      error: {
+        code: "not_found",
+        message: "Repository not found.",
+      },
+    });
+    expect(response.status).toBe(404);
+  });
+
+  it.each([
+    {
+      body: null,
+      message: "Request body must be a JSON object.",
+    },
+    {
+      body: {},
+      message: "Components must be an array.",
+    },
+    {
+      body: { components: Array.from({ length: 201 }, () => createDependencyComponentBody()) },
+      message: "Components must contain 200 items or fewer.",
+    },
+    {
+      body: { components: [null] },
+      message: "Component 1: Component must be a JSON object.",
+    },
+    {
+      body: { components: [createDependencyComponentBody({ id: " " })] },
+      message: "Component 1: Id must be a non-empty string up to 120 characters.",
+    },
+    {
+      body: { components: [createDependencyComponentBody({ ingredientName: "" })] },
+      message: "Component 1: Ingredient name must be 1-120 characters.",
+    },
+    {
+      body: { components: [createDependencyComponentBody({ quantity: -1 })] },
+      message: "Component 1: Quantity must be a finite number greater than or equal to 0.",
+    },
+    {
+      body: { components: [createDependencyComponentBody({ unit: "jar" })] },
+      message: "Component 1: Unit must be a known recipe unit.",
+    },
+    {
+      body: { components: [{ ingredientName: "rice", quantity: 1, unit: "go" }] },
+      message: "Component 1: Dependency type must be a known recipe dependency type.",
+    },
+    {
+      body: { components: [createDependencyComponentBody({ required: "yes" })] },
+      message: "Component 1: Required must be a boolean.",
+    },
+    {
+      body: {
+        components: [
+          {
+            allergens: ["unknown"],
+            dependencyType: "required",
+            ingredientName: "rice",
+            quantity: 1,
+            unit: "go",
+          },
+        ],
+      },
+      message: "Component 1: Allergens must be known allergen strings.",
+    },
+    {
+      body: { components: [createDependencyComponentBody({ alternatives: [""] })] },
+      message: "Component 1: Alternatives must be strings up to 120 characters.",
+    },
+    {
+      body: { components: [createDependencyComponentBody({ transitiveDependencies: "soy" })] },
+      message: "Component 1: Transitive dependencies must be an array.",
+    },
+    {
+      body: { components: [createDependencyComponentBody({ transitiveDependencies: [null] })] },
+      message: "Component 1: Dependency 1: Dependency must be a JSON object.",
+    },
+    {
+      body: {
+        components: [
+          {
+            dependencyType: "required",
+            ingredientName: "rice",
+            quantity: 1,
+            transitiveDependencies: [{ dependencyType: "transitive", name: "" }],
+            unit: "go",
+          },
+        ],
+      },
+      message: "Component 1: Dependency 1: Name must be 1-120 characters.",
+    },
+    {
+      body: {
+        components: [
+          createDependencyComponentBody({
+            transitiveDependencies: [{ dependencyType: "dev", name: "soy" }],
+          }),
+        ],
+      },
+      message:
+        "Component 1: Dependency 1: Dependency type must be transitive, substitute, or peer.",
+    },
+    {
+      body: {
+        components: [
+          createDependencyComponentBody({
+            transitiveDependencies: [
+              {
+                allergens: ["unknown"],
+                dependencyType: "transitive",
+                name: "soy",
+              },
+            ],
+          }),
+        ],
+      },
+      message: "Component 1: Dependency 1: Allergens must be known allergen strings.",
+    },
+    {
+      body: {
+        components: [
+          createDependencyComponentBody({
+            transitiveDependencies: [
+              {
+                dependencyType: "transitive",
+                name: "soy",
+                notes: "n".repeat(1001),
+              },
+            ],
+          }),
+        ],
+      },
+      message: "Component 1: Dependency 1: Notes must be 1000 characters or fewer.",
+    },
+    {
+      body: {
+        components: [
+          createDependencyComponentBody({ id: "component_duplicate" }),
+          createDependencyComponentBody({ id: "component_duplicate" }),
+        ],
+      },
+      message: "Component ids must be unique.",
+    },
+  ])("rejects invalid dependency replacement input %#", async ({ body, message }) => {
+    const response = await handlePutRepositoryDependencies(
+      new Request("https://example.test/api/repos/test-user/private-curry/dependencies", {
+        body: JSON.stringify(body),
+        method: "PUT",
+      }),
+      "test-user",
+      "private-curry",
+      owner,
+      env,
+      {
+        recipeComponents: createRecipeComponentRepository([]),
+        recipeRepositories: createRecipeRepository([privateRepository]),
+      },
+    );
+
+    await expect(parseJson(response)).resolves.toEqual({
+      error: {
+        code: "validation_failed",
+        message,
+      },
+    });
+    expect(response.status).toBe(400);
+  });
+
+  it("returns a JSON error when dependency replacement fails", async () => {
+    const response = await handlePutRepositoryDependencies(
+      new Request("https://example.test/api/repos/test-user/private-curry/dependencies", {
+        body: JSON.stringify({ components: [] }),
+        method: "PUT",
+      }),
+      "test-user",
+      "private-curry",
+      owner,
+      env,
+      {
+        recipeComponents: {
+          async listByRepositoryId() {
+            return [];
+          },
+          async replaceByRepositoryId() {
+            throw new Error("D1 unavailable");
+          },
+        },
+        recipeRepositories: createRecipeRepository([privateRepository]),
+      },
+    );
+
+    await expect(parseJson(response)).resolves.toEqual({
+      error: {
+        code: "internal_error",
+        message: "Failed to update dependencies.",
       },
     });
     expect(response.status).toBe(500);
@@ -664,6 +997,19 @@ function createValidPostRequest(overrides: Record<string, unknown> = {}): Reques
   });
 }
 
+function createDependencyComponentBody(
+  overrides: Record<string, unknown> = {},
+): Record<string, unknown> {
+  return {
+    dependencyType: "required",
+    id: "component_rice",
+    ingredientName: "rice",
+    quantity: 1,
+    unit: "go",
+    ...overrides,
+  };
+}
+
 function createRecipeRepository(
   initialRepositories: CloudRecipeRepository[],
 ): RecipeRepositoryMetadataRepository {
@@ -737,13 +1083,27 @@ function createRecipeRepository(
 }
 
 function createRecipeComponentRepository(
-  initialComponents: Awaited<ReturnType<RecipeComponentReadRepository["listByRepositoryId"]>>,
-): RecipeComponentReadRepository {
+  initialComponents: Awaited<ReturnType<RecipeComponentWriteRepository["listByRepositoryId"]>>,
+): RecipeComponentWriteRepository {
   const components = [...initialComponents];
 
   return {
     async listByRepositoryId(repositoryId) {
       return components.filter((component) => component.recipeId === repositoryId);
+    },
+    async replaceByRepositoryId(repositoryId, nextComponents) {
+      for (let index = components.length - 1; index >= 0; index -= 1) {
+        if (components[index]?.recipeId === repositoryId) {
+          components.splice(index, 1);
+        }
+      }
+
+      const savedComponents = nextComponents.map((component) => ({
+        ...component,
+        recipeId: repositoryId,
+      }));
+      components.push(...savedComponents);
+      return savedComponents;
     },
   };
 }

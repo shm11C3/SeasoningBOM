@@ -5,7 +5,7 @@ import type {
   InventoryItemRepository,
   UpdateInventoryItemInput,
 } from "../../repositories/cloudflare-d1/D1InventoryRepository";
-import type { RecipeComponentReadRepository } from "../../repositories/cloudflare-d1/D1RecipeComponentRepository";
+import type { RecipeComponentWriteRepository } from "../../repositories/cloudflare-d1/D1RecipeComponentRepository";
 import type {
   CloudRecipeRepository,
   CreateRecipeRepositoryInput,
@@ -121,7 +121,7 @@ const recipeComponent = {
     },
   ],
   unit: "box",
-} satisfies Awaited<ReturnType<RecipeComponentReadRepository["listByRepositoryId"]>>[number];
+} satisfies Awaited<ReturnType<RecipeComponentWriteRepository["listByRepositoryId"]>>[number];
 
 async function parseJson(response: Response) {
   return response.json() as Promise<unknown>;
@@ -536,6 +536,72 @@ describe("Worker API router", () => {
     expect(response.status).toBe(200);
   });
 
+  it("replaces repository dependencies through the concrete Hono route", async () => {
+    const response = await handleApiRequest(
+      new Request("https://example.test/api/repos/test-user/public-curry/dependencies", {
+        body: JSON.stringify({
+          components: [
+            {
+              dependencyType: "required",
+              id: "component_rice",
+              ingredientName: "rice",
+              quantity: 2,
+              transitiveDependencies: [
+                {
+                  allergens: [],
+                  dependencyType: "peer",
+                  name: "water",
+                },
+              ],
+              unit: "go",
+            },
+          ],
+        }),
+        headers: {
+          authorization: "Bearer fake-session",
+        },
+        method: "PUT",
+      }),
+      configuredEnv,
+      {
+        ...validSessionAuth,
+        recipeComponents: createRecipeComponentRepository([]),
+        recipeRepositories: createRecipeRepository([publicRecipeRepository]),
+        userProfiles: createUserProfileRepository([userProfile]),
+      },
+    );
+
+    await expect(parseJson(response)).resolves.toEqual({
+      components: [
+        expect.objectContaining({
+          id: "component_rice",
+          ingredientName: "rice",
+          transitiveDependencies: [expect.objectContaining({ name: "water" })],
+        }),
+      ],
+      repository: expect.objectContaining({ id: "repo_public" }),
+    });
+    expect(response.status).toBe(200);
+  });
+
+  it("requires bearer auth for dependency replacement", async () => {
+    const response = await handleApiRequest(
+      new Request("https://example.test/api/repos/test-user/public-curry/dependencies", {
+        body: JSON.stringify({ components: [] }),
+        method: "PUT",
+      }),
+      env,
+    );
+
+    await expect(parseJson(response)).resolves.toEqual({
+      error: {
+        code: "not_authenticated",
+        message: "Sign in with Clerk to access this endpoint.",
+      },
+    });
+    expect(response.status).toBe(401);
+  });
+
   it("rejects unsupported dependency methods with an Allow header", async () => {
     const response = await handleApiRequest(
       new Request("https://example.test/api/repos/test-user/public-curry/dependencies", {
@@ -551,7 +617,7 @@ describe("Worker API router", () => {
       },
     });
     expect(response.status).toBe(405);
-    expect(response.headers.get("allow")).toBe("GET");
+    expect(response.headers.get("allow")).toBe("GET, PUT");
   });
 
   it("creates repository metadata for the authenticated owner", async () => {
@@ -1193,13 +1259,27 @@ function createRecipeRepository(
 }
 
 function createRecipeComponentRepository(
-  initialComponents: Awaited<ReturnType<RecipeComponentReadRepository["listByRepositoryId"]>>,
-): RecipeComponentReadRepository {
+  initialComponents: Awaited<ReturnType<RecipeComponentWriteRepository["listByRepositoryId"]>>,
+): RecipeComponentWriteRepository {
   const components = [...initialComponents];
 
   return {
     async listByRepositoryId(repositoryId) {
       return components.filter((component) => component.recipeId === repositoryId);
+    },
+    async replaceByRepositoryId(repositoryId, nextComponents) {
+      for (let index = components.length - 1; index >= 0; index -= 1) {
+        if (components[index]?.recipeId === repositoryId) {
+          components.splice(index, 1);
+        }
+      }
+
+      const savedComponents = nextComponents.map((component) => ({
+        ...component,
+        recipeId: repositoryId,
+      }));
+      components.push(...savedComponents);
+      return savedComponents;
     },
   };
 }

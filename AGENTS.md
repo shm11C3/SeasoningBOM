@@ -208,6 +208,12 @@ When adding or changing behavior:
 - Keep README concise and user-facing.
 - Keep AGENTS.md practical for future agents.
 
+## PR Workflow Guidance
+
+- Ask CodeRabbit to review each PR, for example by commenting `@coderabbitai review`.
+- Use squash merge for PRs.
+- CodeRabbit review status does not satisfy GitHub rulesets that require an approving review. If a PR is blocked by `REVIEW_REQUIRED`, request or wait for a real GitHub approval; do not use administrator bypass unless the user explicitly authorizes bypassing branch protection.
+
 ## PR Self-Review Guidance
 
 Before publishing a PR, check:

@@ -1,16 +1,19 @@
 import {
   type Allergen,
+  allergens,
   type DependencyType,
+  dependencyTypes,
   type IngredientDependency,
   type IngredientDependencyType,
   type RecipeComponent,
   type RecipeRepositoryEntity,
   repositoryVisibilities,
   type Unit,
+  units,
 } from "../../domain";
 import {
   D1RecipeComponentRepository,
-  type RecipeComponentReadRepository,
+  type RecipeComponentWriteRepository,
 } from "../../repositories/cloudflare-d1/D1RecipeComponentRepository";
 import {
   type CloudRecipeRepository,
@@ -25,9 +28,10 @@ import type { WorkerEnv } from "./types";
 
 export type RepositoryRouteOptions = ClerkAuthenticationOptions &
   ProfileRouteOptions & {
+    createRecipeComponentId?: () => string;
     createRepositoryId?: () => string;
     now?: () => Date;
-    recipeComponents?: RecipeComponentReadRepository;
+    recipeComponents?: RecipeComponentWriteRepository;
     recipeRepositories?: RecipeRepositoryMetadataRepository;
   };
 
@@ -81,6 +85,10 @@ type SerializedIngredientDependency = {
   notes?: string;
 };
 
+type ReplaceRepositoryDependenciesBody = {
+  components?: unknown;
+};
+
 type CreateRepositoryBody = {
   description?: unknown;
   license?: unknown;
@@ -95,7 +103,12 @@ type CreateRepositoryBody = {
 type UpdateRepositoryBody = CreateRepositoryBody;
 
 const repositorySlugPattern = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
+const allergenSet = new Set<string>(allergens);
+const dependencyTypeSet = new Set<string>(dependencyTypes);
+const ingredientDependencyTypes = ["transitive", "substitute", "peer"] as const;
+const ingredientDependencyTypeSet = new Set<string>(ingredientDependencyTypes);
 const repositoryVisibilitySet = new Set<string>(repositoryVisibilities);
+const unitSet = new Set<string>(units);
 const updateRepositoryFields = [
   "description",
   "license",
@@ -177,6 +190,59 @@ export async function handleGetRepositoryDependencies(
     } satisfies RepositoryDependenciesResponseBody);
   } catch {
     return serverError("Failed to load dependencies.");
+  }
+}
+
+export async function handlePutRepositoryDependencies(
+  request: Request,
+  ownerHandle: string,
+  slug: string,
+  owner: UserProfile,
+  env: WorkerEnv,
+  options: RepositoryRouteOptions = {},
+): Promise<Response> {
+  const repositories = getRecipeRepository(env, options);
+  const components = getRecipeComponentRepository(env, options);
+  const repositoryResult = await findOwnedRepository(
+    repositories,
+    ownerHandle,
+    slug,
+    owner,
+    "Failed to update dependencies.",
+  );
+  if (!repositoryResult.ok) {
+    return repositoryResult.response;
+  }
+
+  const body = await readRepositoryDependenciesBody(request);
+  if (!body.ok) {
+    return badRequest(body.message);
+  }
+
+  const input = normalizeReplaceRepositoryDependenciesBody(
+    body.value,
+    repositoryResult.repository.id,
+    options,
+  );
+  if (!input.ok) {
+    return badRequest(input.message);
+  }
+
+  const now = (options.now?.() ?? new Date()).toISOString();
+
+  try {
+    const recipeComponents = await components.replaceByRepositoryId(
+      repositoryResult.repository.id,
+      input.value.components,
+      now,
+    );
+
+    return jsonResponse({
+      components: recipeComponents.map(serializeRecipeComponent),
+      repository: serializeRepository(repositoryResult.repository),
+    } satisfies RepositoryDependenciesResponseBody);
+  } catch {
+    return serverError("Failed to update dependencies.");
   }
 }
 
@@ -544,6 +610,183 @@ function normalizeUpdateRepositoryBody(
   };
 }
 
+function normalizeReplaceRepositoryDependenciesBody(
+  body: ReplaceRepositoryDependenciesBody,
+  repositoryId: string,
+  options: RepositoryRouteOptions,
+):
+  | {
+      ok: true;
+      value: {
+        components: RecipeComponent[];
+      };
+    }
+  | { message: string; ok: false } {
+  if (!Array.isArray(body.components)) {
+    return { message: "Components must be an array.", ok: false };
+  }
+
+  if (body.components.length > 200) {
+    return { message: "Components must contain 200 items or fewer.", ok: false };
+  }
+
+  const componentIds = new Set<string>();
+  const components: RecipeComponent[] = [];
+
+  for (const [index, value] of body.components.entries()) {
+    const component = normalizeRecipeComponentBody(value, repositoryId, options);
+    if (!component.ok) {
+      return { message: `Component ${index + 1}: ${component.message}`, ok: false };
+    }
+
+    if (componentIds.has(component.value.id)) {
+      return { message: "Component ids must be unique.", ok: false };
+    }
+
+    componentIds.add(component.value.id);
+    components.push(component.value);
+  }
+
+  return { ok: true, value: { components } };
+}
+
+function normalizeRecipeComponentBody(
+  value: unknown,
+  repositoryId: string,
+  options: RepositoryRouteOptions,
+): { ok: true; value: RecipeComponent } | { message: string; ok: false } {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return { message: "Component must be a JSON object.", ok: false };
+  }
+
+  const body = value as Record<string, unknown>;
+  const id = normalizeOptionalId(
+    body.id,
+    options.createRecipeComponentId ?? (() => crypto.randomUUID()),
+  );
+  if (!id) {
+    return { message: "Id must be a non-empty string up to 120 characters.", ok: false };
+  }
+
+  const ingredientName = normalizeRequiredText(body.ingredientName, 120);
+  if (!ingredientName) {
+    return { message: "Ingredient name must be 1-120 characters.", ok: false };
+  }
+
+  const quantity = normalizeQuantity(body.quantity);
+  if (quantity === null) {
+    return { message: "Quantity must be a finite number greater than or equal to 0.", ok: false };
+  }
+
+  const unit = normalizeUnit(body.unit);
+  if (!unit) {
+    return { message: "Unit must be a known recipe unit.", ok: false };
+  }
+
+  const dependencyType = normalizeDependencyType(body.dependencyType);
+  if (!dependencyType) {
+    return { message: "Dependency type must be a known recipe dependency type.", ok: false };
+  }
+
+  const required = normalizeOptionalBoolean(body.required);
+  if (required === null) {
+    return { message: "Required must be a boolean.", ok: false };
+  }
+
+  const allergens = normalizeAllergenArray(body.allergens);
+  if (!allergens) {
+    return { message: "Allergens must be known allergen strings.", ok: false };
+  }
+
+  const alternatives = normalizeStringArray(body.alternatives, 20, 120);
+  if (!alternatives) {
+    return { message: "Alternatives must be strings up to 120 characters.", ok: false };
+  }
+
+  const dependencies = normalizeIngredientDependencies(body.transitiveDependencies);
+  if (!dependencies.ok) {
+    return dependencies;
+  }
+
+  return {
+    ok: true,
+    value: {
+      id,
+      recipeId: repositoryId,
+      ingredientName,
+      quantity,
+      unit,
+      dependencyType,
+      required: required ?? true,
+      allergens,
+      alternatives,
+      transitiveDependencies: dependencies.value,
+    },
+  };
+}
+
+function normalizeIngredientDependencies(
+  value: unknown,
+): { ok: true; value: IngredientDependency[] } | { message: string; ok: false } {
+  if (value === undefined || value === null) {
+    return { ok: true, value: [] };
+  }
+
+  if (!Array.isArray(value)) {
+    return { message: "Transitive dependencies must be an array.", ok: false };
+  }
+
+  if (value.length > 50) {
+    return { message: "Transitive dependencies must contain 50 items or fewer.", ok: false };
+  }
+
+  const dependencies: IngredientDependency[] = [];
+  for (const [index, item] of value.entries()) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) {
+      return { message: `Dependency ${index + 1}: Dependency must be a JSON object.`, ok: false };
+    }
+
+    const body = item as Record<string, unknown>;
+    const name = normalizeRequiredText(body.name, 120);
+    if (!name) {
+      return { message: `Dependency ${index + 1}: Name must be 1-120 characters.`, ok: false };
+    }
+
+    const dependencyType = normalizeIngredientDependencyType(body.dependencyType);
+    if (!dependencyType) {
+      return {
+        message: `Dependency ${index + 1}: Dependency type must be transitive, substitute, or peer.`,
+        ok: false,
+      };
+    }
+
+    const allergens = normalizeAllergenArray(body.allergens);
+    if (!allergens) {
+      return {
+        message: `Dependency ${index + 1}: Allergens must be known allergen strings.`,
+        ok: false,
+      };
+    }
+
+    const notes = normalizeOptionalText(body.notes, 1000);
+    if (notes === false) {
+      return {
+        message: `Dependency ${index + 1}: Notes must be 1000 characters or fewer.`,
+        ok: false,
+      };
+    }
+
+    dependencies.push({
+      name,
+      dependencyType,
+      allergens,
+      notes: notes || undefined,
+    });
+  }
+
+  return { ok: true, value: dependencies };
+}
+
 async function findOwnedRepository(
   repositories: RecipeRepositoryMetadataRepository,
   ownerHandle: string,
@@ -626,6 +869,14 @@ function normalizeServings(value: unknown): number | null {
     : null;
 }
 
+function normalizeQuantity(value: unknown): number | null {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+    return null;
+  }
+
+  return value;
+}
+
 function normalizeRequiredText(value: unknown, maxLength: number): string | null {
   if (typeof value !== "string") {
     return null;
@@ -648,6 +899,90 @@ function normalizeOptionalText(value: unknown, maxLength: number): string | fals
   return trimmed.length <= maxLength ? trimmed : false;
 }
 
+function normalizeOptionalId(value: unknown, fallback: () => string): string | null {
+  if (value === undefined || value === null || value === "") {
+    return fallback();
+  }
+
+  return normalizeRequiredText(value, 120);
+}
+
+function normalizeUnit(value: unknown): Unit | null {
+  return typeof value === "string" && unitSet.has(value) ? (value as Unit) : null;
+}
+
+function normalizeDependencyType(value: unknown): DependencyType | null {
+  return typeof value === "string" && dependencyTypeSet.has(value)
+    ? (value as DependencyType)
+    : null;
+}
+
+function normalizeIngredientDependencyType(value: unknown): IngredientDependencyType | null {
+  return typeof value === "string" && ingredientDependencyTypeSet.has(value)
+    ? (value as IngredientDependencyType)
+    : null;
+}
+
+function normalizeOptionalBoolean(value: unknown): boolean | null | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  return typeof value === "boolean" ? value : null;
+}
+
+function normalizeAllergenArray(value: unknown): Allergen[] | null {
+  const items = normalizeStringArray(value, 20, 40);
+  if (!items) {
+    return null;
+  }
+
+  const allergens: Allergen[] = [];
+  for (const item of items) {
+    if (!allergenSet.has(item)) {
+      return null;
+    }
+
+    if (!allergens.includes(item as Allergen)) {
+      allergens.push(item as Allergen);
+    }
+  }
+
+  return allergens;
+}
+
+function normalizeStringArray(
+  value: unknown,
+  maxItems: number,
+  maxItemLength: number,
+): string[] | null {
+  if (value === undefined || value === null) {
+    return [];
+  }
+
+  if (!Array.isArray(value) || value.length > maxItems) {
+    return null;
+  }
+
+  const items: string[] = [];
+  for (const item of value) {
+    if (typeof item !== "string") {
+      return null;
+    }
+
+    const trimmed = item.trim();
+    if (trimmed.length < 1 || trimmed.length > maxItemLength) {
+      return null;
+    }
+
+    if (!items.includes(trimmed)) {
+      items.push(trimmed);
+    }
+  }
+
+  return items;
+}
+
 function getRecipeRepository(
   env: WorkerEnv,
   options: RepositoryRouteOptions,
@@ -658,8 +993,25 @@ function getRecipeRepository(
 function getRecipeComponentRepository(
   env: WorkerEnv,
   options: RepositoryRouteOptions,
-): RecipeComponentReadRepository {
+): RecipeComponentWriteRepository {
   return options.recipeComponents ?? new D1RecipeComponentRepository(env.DB);
+}
+
+async function readRepositoryDependenciesBody(
+  request: Request,
+): Promise<
+  { ok: true; value: ReplaceRepositoryDependenciesBody } | { message: string; ok: false }
+> {
+  try {
+    const body = (await request.json()) as unknown;
+    if (!body || typeof body !== "object" || Array.isArray(body)) {
+      return { message: "Request body must be a JSON object.", ok: false };
+    }
+
+    return { ok: true, value: body };
+  } catch {
+    return { message: "Request body must be valid JSON.", ok: false };
+  }
 }
 
 async function readRepositoryBody(

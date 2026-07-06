@@ -32,6 +32,14 @@ export type RecipeComponentReadRepository = {
   listByRepositoryId(repositoryId: string): Promise<RecipeComponent[]>;
 };
 
+export type RecipeComponentWriteRepository = RecipeComponentReadRepository & {
+  replaceByRepositoryId(
+    repositoryId: string,
+    components: RecipeComponent[],
+    now: string,
+  ): Promise<RecipeComponent[]>;
+};
+
 const componentSelect = `SELECT
   id,
   repository_id,
@@ -53,7 +61,30 @@ const dependencySelect = `SELECT
 FROM ingredient_dependencies
 INNER JOIN recipe_components ON recipe_components.id = ingredient_dependencies.component_id`;
 
-export class D1RecipeComponentRepository implements RecipeComponentReadRepository {
+const insertComponentSql = `INSERT INTO recipe_components (
+  id,
+  repository_id,
+  ingredient_name,
+  quantity,
+  unit,
+  dependency_type,
+  required,
+  allergens_json,
+  alternatives_json,
+  created_at,
+  updated_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+
+const insertDependencySql = `INSERT INTO ingredient_dependencies (
+  id,
+  component_id,
+  dependency_name,
+  dependency_type,
+  allergens_json,
+  notes
+) VALUES (?, ?, ?, ?, ?, ?)`;
+
+export class D1RecipeComponentRepository implements RecipeComponentWriteRepository {
   constructor(private readonly db: D1Database) {}
 
   async listByRepositoryId(repositoryId: string): Promise<RecipeComponent[]> {
@@ -80,6 +111,60 @@ export class D1RecipeComponentRepository implements RecipeComponentReadRepositor
     return (componentsResult.results ?? []).map((row) =>
       mapRecipeComponentRow(row, dependenciesByComponentId.get(row.id) ?? []),
     );
+  }
+
+  async replaceByRepositoryId(
+    repositoryId: string,
+    components: RecipeComponent[],
+    now: string,
+  ): Promise<RecipeComponent[]> {
+    const statements = [
+      this.db
+        .prepare(`DELETE FROM ingredient_dependencies
+          WHERE component_id IN (
+            SELECT id FROM recipe_components WHERE repository_id = ?
+          )`)
+        .bind(repositoryId),
+      this.db.prepare("DELETE FROM recipe_components WHERE repository_id = ?").bind(repositoryId),
+    ];
+
+    for (const component of components) {
+      statements.push(
+        this.db
+          .prepare(insertComponentSql)
+          .bind(
+            component.id,
+            repositoryId,
+            component.ingredientName,
+            component.quantity,
+            component.unit,
+            component.dependencyType,
+            component.required,
+            JSON.stringify(component.allergens),
+            JSON.stringify(component.alternatives),
+            now,
+            now,
+          ),
+      );
+
+      component.transitiveDependencies.forEach((dependency, index) => {
+        statements.push(
+          this.db
+            .prepare(insertDependencySql)
+            .bind(
+              `${component.id}:dependency:${index}`,
+              component.id,
+              dependency.name,
+              dependency.dependencyType,
+              JSON.stringify(dependency.allergens),
+              dependency.notes ?? null,
+            ),
+        );
+      });
+    }
+
+    await this.db.batch(statements);
+    return this.listByRepositoryId(repositoryId);
   }
 }
 
