@@ -6,6 +6,13 @@ import {
   type ClerkSession,
 } from "../auth/clerk";
 import {
+  handleDeleteInventory,
+  handleListInventory,
+  handlePatchInventory,
+  handlePostInventory,
+  type InventoryRouteOptions,
+} from "./inventory";
+import {
   handleGetMe,
   handlePostMeProfile,
   type ProfileRouteOptions,
@@ -31,6 +38,7 @@ import type { WorkerEnv } from "./types";
 
 export type WorkerApiOptions = ClerkAuthenticationOptions &
   ProfileRouteOptions &
+  InventoryRouteOptions &
   RepositoryRouteOptions;
 
 type WorkerApiHonoEnv = {
@@ -57,6 +65,8 @@ const coreRoutes = {
     allowedMethods: ["GET", "PATCH", "DELETE"],
     path: "/api/repos/:owner/:repo",
   },
+  inventory: { allowedMethods: ["GET", "POST"], path: "/api/inventory" },
+  inventoryItem: { allowedMethods: ["PATCH", "DELETE"], path: "/api/inventory/:id" },
 } as const satisfies Record<string, HeadMethodRoute>;
 
 const repoScaffoldRoutes: ScaffoldRoute[] = [
@@ -98,19 +108,6 @@ const repoScaffoldRoutes: ScaffoldRoute[] = [
   },
 ];
 
-const inventoryScaffoldRoutes: ScaffoldRoute[] = [
-  {
-    message: "Inventory API is not implemented yet.",
-    path: "/api/inventory",
-    protectedMethods: ["GET", "POST"],
-  },
-  {
-    message: "Inventory API is not implemented yet.",
-    path: "/api/inventory/:id",
-    protectedMethods: ["PATCH", "DELETE"],
-  },
-];
-
 const profileScaffoldRoutes: ScaffoldRoute[] = [
   {
     message: "Profile API is not implemented yet.",
@@ -132,7 +129,6 @@ const profileScaffoldRoutes: ScaffoldRoute[] = [
 const headMethodRoutes: HeadMethodRoute[] = [
   ...Object.values(coreRoutes),
   ...toHeadMethodRoutes(repoScaffoldRoutes),
-  ...toHeadMethodRoutes(inventoryScaffoldRoutes),
   ...toHeadMethodRoutes(profileScaffoldRoutes),
 ];
 
@@ -277,8 +273,81 @@ export function createWorkerApiApp(options: WorkerApiOptions = {}): Hono<WorkerA
     methodNotAllowed(coreRoutes.repositoryDetail.allowedMethods),
   );
 
+  app.get(coreRoutes.inventory.path, async (context) => {
+    const profileResult = await requireAuthenticatedProfile(
+      context.req.raw,
+      context.env,
+      "GET",
+      options,
+    );
+    if (!profileResult.ok) {
+      return profileResult.response;
+    }
+
+    return handleListInventory(profileResult.profile, context.env, options);
+  });
+  app.post(coreRoutes.inventory.path, async (context) => {
+    const profileResult = await requireAuthenticatedProfile(
+      context.req.raw,
+      context.env,
+      "POST",
+      options,
+    );
+    if (!profileResult.ok) {
+      return profileResult.response;
+    }
+
+    return handlePostInventory(context.req.raw, profileResult.profile, context.env, options);
+  });
+  app.all(coreRoutes.inventory.path, () => methodNotAllowed(coreRoutes.inventory.allowedMethods));
+
+  app.patch(coreRoutes.inventoryItem.path, async (context) => {
+    const idResult = getRequiredPathParam(context.req.param("id"), context.req.raw);
+    if (!idResult.ok) {
+      return idResult.response;
+    }
+
+    const profileResult = await requireAuthenticatedProfile(
+      context.req.raw,
+      context.env,
+      "PATCH",
+      options,
+    );
+    if (!profileResult.ok) {
+      return profileResult.response;
+    }
+
+    return handlePatchInventory(
+      context.req.raw,
+      idResult.value,
+      profileResult.profile,
+      context.env,
+      options,
+    );
+  });
+  app.delete(coreRoutes.inventoryItem.path, async (context) => {
+    const idResult = getRequiredPathParam(context.req.param("id"), context.req.raw);
+    if (!idResult.ok) {
+      return idResult.response;
+    }
+
+    const profileResult = await requireAuthenticatedProfile(
+      context.req.raw,
+      context.env,
+      "DELETE",
+      options,
+    );
+    if (!profileResult.ok) {
+      return profileResult.response;
+    }
+
+    return handleDeleteInventory(idResult.value, profileResult.profile, context.env, options);
+  });
+  app.all(coreRoutes.inventoryItem.path, () =>
+    methodNotAllowed(coreRoutes.inventoryItem.allowedMethods),
+  );
+
   registerScaffoldRoutes(app, repoScaffoldRoutes, options);
-  registerScaffoldRoutes(app, inventoryScaffoldRoutes, options);
   registerScaffoldRoutes(app, profileScaffoldRoutes, options);
 
   app.notFound((context) => notFound(pathnameFromRequest(context.req.raw)));
@@ -415,6 +484,18 @@ function getRepositoryParams(
   }
 
   return { ok: true, ownerHandle, slug };
+}
+
+function getRequiredPathParam(
+  value: string | undefined,
+  request: Request,
+): { ok: true; value: string } | { ok: false; response: Response } {
+  const decodedValue = decodePathSegment(value);
+  if (!decodedValue) {
+    return { ok: false, response: notFound(pathnameFromRequest(request)) };
+  }
+
+  return { ok: true, value: decodedValue };
 }
 
 function decodePathSegment(value: string | undefined): string | null {

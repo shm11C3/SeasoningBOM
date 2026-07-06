@@ -134,7 +134,9 @@ Production rules:
 - D1 Repository metadata list/detail/create is handled by `D1RecipeRepository` and Workers API handlers.
 - private Repository reads require the owner.
 - unlisted Repository reads require the exact URL but are not listed publicly.
-- `inventory_items` are always scoped to the authenticated user.
+- `inventory_items` CRUD is handled by `D1InventoryRepository` and Workers API handlers.
+- `inventory_items` are always scoped to the authenticated user; requests cannot choose another inventory owner.
+- Inventory mutations require Authorization bearer tokens. Clerk `__session` cookies are limited to protected non-mutating reads until explicit CSRF handling is added.
 - Recipe Alert queries may use Repository content only.
 - Inventory Audit queries may combine Repository content with only the viewer's Inventory.
 - D1 bindings and SQL stay inside Workers / repository implementation.
