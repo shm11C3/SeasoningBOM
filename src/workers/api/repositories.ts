@@ -1,4 +1,17 @@
-import { type RecipeRepositoryEntity, repositoryVisibilities } from "../../domain";
+import {
+  type Allergen,
+  type DependencyType,
+  type IngredientDependency,
+  type IngredientDependencyType,
+  type RecipeComponent,
+  type RecipeRepositoryEntity,
+  repositoryVisibilities,
+  type Unit,
+} from "../../domain";
+import {
+  D1RecipeComponentRepository,
+  type RecipeComponentReadRepository,
+} from "../../repositories/cloudflare-d1/D1RecipeComponentRepository";
 import {
   type CloudRecipeRepository,
   D1RecipeRepository,
@@ -14,6 +27,7 @@ export type RepositoryRouteOptions = ClerkAuthenticationOptions &
   ProfileRouteOptions & {
     createRepositoryId?: () => string;
     now?: () => Date;
+    recipeComponents?: RecipeComponentReadRepository;
     recipeRepositories?: RecipeRepositoryMetadataRepository;
   };
 
@@ -23,6 +37,11 @@ type RepositoryResponseBody = {
 
 type RepositoryListResponseBody = {
   repositories: SerializedRepository[];
+};
+
+type RepositoryDependenciesResponseBody = {
+  repository: SerializedRepository;
+  components: SerializedRecipeComponent[];
 };
 
 type SerializedRepository = {
@@ -41,6 +60,25 @@ type SerializedRepository = {
   sourceRepositoryId?: string;
   createdAt: string;
   updatedAt: string;
+};
+
+type SerializedRecipeComponent = {
+  id: string;
+  ingredientName: string;
+  quantity: number;
+  unit: Unit;
+  dependencyType: DependencyType;
+  required: boolean;
+  allergens: Allergen[];
+  alternatives: string[];
+  transitiveDependencies: SerializedIngredientDependency[];
+};
+
+type SerializedIngredientDependency = {
+  name: string;
+  dependencyType: IngredientDependencyType;
+  allergens: Allergen[];
+  notes?: string;
 };
 
 type CreateRepositoryBody = {
@@ -93,32 +131,89 @@ export async function handleGetRepository(
   options: RepositoryRouteOptions = {},
 ): Promise<Response> {
   const repositories = getRecipeRepository(env, options);
+  const repositoryResult = await findReadableRepository(
+    request,
+    repositories,
+    ownerHandle,
+    slug,
+    env,
+    options,
+    "Failed to load repository.",
+  );
+  if (!repositoryResult.ok) {
+    return repositoryResult.response;
+  }
 
+  return jsonResponse(serializeRepositoryResponse(repositoryResult.repository));
+}
+
+export async function handleGetRepositoryDependencies(
+  request: Request,
+  ownerHandle: string,
+  slug: string,
+  env: WorkerEnv,
+  options: RepositoryRouteOptions = {},
+): Promise<Response> {
+  const repositories = getRecipeRepository(env, options);
+  const components = getRecipeComponentRepository(env, options);
+  const repositoryResult = await findReadableRepository(
+    request,
+    repositories,
+    ownerHandle,
+    slug,
+    env,
+    options,
+    "Failed to load dependencies.",
+  );
+  if (!repositoryResult.ok) {
+    return repositoryResult.response;
+  }
+
+  try {
+    const recipeComponents = await components.listByRepositoryId(repositoryResult.repository.id);
+    return jsonResponse({
+      components: recipeComponents.map(serializeRecipeComponent),
+      repository: serializeRepository(repositoryResult.repository),
+    } satisfies RepositoryDependenciesResponseBody);
+  } catch {
+    return serverError("Failed to load dependencies.");
+  }
+}
+
+async function findReadableRepository(
+  request: Request,
+  repositories: RecipeRepositoryMetadataRepository,
+  ownerHandle: string,
+  slug: string,
+  env: WorkerEnv,
+  options: RepositoryRouteOptions,
+  failureMessage: string,
+): Promise<{ ok: true; repository: CloudRecipeRepository } | { ok: false; response: Response }> {
   let repository: CloudRecipeRepository | null;
   try {
     repository = await repositories.findByOwnerAndSlug(ownerHandle, slug);
   } catch {
-    return serverError("Failed to load repository.");
+    return { ok: false, response: serverError(failureMessage) };
   }
 
   if (!repository) {
-    return repositoryNotFound();
+    return { ok: false, response: repositoryNotFound() };
   }
 
   if (repository.visibility === "public" || repository.visibility === "unlisted") {
-    return jsonResponse(serializeRepositoryResponse(repository));
+    return { ok: true, repository };
   }
 
   const viewer = await resolveOptionalProfile(request, env, options);
   if (viewer.kind === "error") {
-    return viewer.response;
+    return { ok: false, response: viewer.response };
   }
 
   if (viewer.profile?.id !== repository.ownerUserId) {
-    return repositoryNotFound();
+    return { ok: false, response: repositoryNotFound() };
   }
 
-  return jsonResponse(serializeRepositoryResponse(repository));
+  return { ok: true, repository };
 }
 
 export async function handlePostRepository(
@@ -560,6 +655,13 @@ function getRecipeRepository(
   return options.recipeRepositories ?? new D1RecipeRepository(env.DB);
 }
 
+function getRecipeComponentRepository(
+  env: WorkerEnv,
+  options: RepositoryRouteOptions,
+): RecipeComponentReadRepository {
+  return options.recipeComponents ?? new D1RecipeComponentRepository(env.DB);
+}
+
 async function readRepositoryBody(
   request: Request,
 ): Promise<{ ok: true; value: CreateRepositoryBody } | { message: string; ok: false }> {
@@ -598,5 +700,30 @@ function serializeRepository(repository: CloudRecipeRepository): SerializedRepos
     sourceRepositoryId: repository.sourceRepositoryId,
     createdAt: repository.createdAt,
     updatedAt: repository.updatedAt,
+  };
+}
+
+function serializeRecipeComponent(component: RecipeComponent): SerializedRecipeComponent {
+  return {
+    allergens: component.allergens,
+    alternatives: component.alternatives,
+    dependencyType: component.dependencyType,
+    id: component.id,
+    ingredientName: component.ingredientName,
+    quantity: component.quantity,
+    required: component.required,
+    transitiveDependencies: component.transitiveDependencies.map(serializeIngredientDependency),
+    unit: component.unit,
+  };
+}
+
+function serializeIngredientDependency(
+  dependency: IngredientDependency,
+): SerializedIngredientDependency {
+  return {
+    allergens: dependency.allergens,
+    dependencyType: dependency.dependencyType,
+    name: dependency.name,
+    notes: dependency.notes,
   };
 }

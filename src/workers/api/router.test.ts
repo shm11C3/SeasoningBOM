@@ -5,6 +5,7 @@ import type {
   InventoryItemRepository,
   UpdateInventoryItemInput,
 } from "../../repositories/cloudflare-d1/D1InventoryRepository";
+import type { RecipeComponentReadRepository } from "../../repositories/cloudflare-d1/D1RecipeComponentRepository";
 import type {
   CloudRecipeRepository,
   CreateRecipeRepositoryInput,
@@ -101,6 +102,26 @@ const inventoryItem: CloudInventoryItem = {
   updatedAt: "2026-07-06T00:00:00.000Z",
   userId: "profile_test",
 };
+
+const recipeComponent = {
+  allergens: ["wheat"],
+  alternatives: ["homemade roux"],
+  dependencyType: "required",
+  id: "component_roux",
+  ingredientName: "curry-roux",
+  quantity: 1,
+  recipeId: "repo_public",
+  required: true,
+  transitiveDependencies: [
+    {
+      allergens: ["milk"],
+      dependencyType: "transitive",
+      name: "milk powder",
+      notes: "Often hidden in roux blocks.",
+    },
+  ],
+  unit: "box",
+} satisfies Awaited<ReturnType<RecipeComponentReadRepository["listByRepositoryId"]>>[number];
 
 async function parseJson(response: Response) {
   return response.json() as Promise<unknown>;
@@ -483,6 +504,54 @@ describe("Worker API router", () => {
     expect(response.status).toBe(405);
     expect(response.headers.get("allow")).toBe("GET, POST");
     await expect(response.text()).resolves.toBe("");
+  });
+
+  it("returns repository dependencies through the concrete Hono route", async () => {
+    const response = await handleApiRequest(
+      new Request("https://example.test/api/repos/test-user/public-curry/dependencies"),
+      env,
+      {
+        recipeComponents: createRecipeComponentRepository([recipeComponent]),
+        recipeRepositories: createRecipeRepository([publicRecipeRepository]),
+      },
+    );
+
+    await expect(parseJson(response)).resolves.toEqual({
+      components: [
+        expect.objectContaining({
+          id: "component_roux",
+          ingredientName: "curry-roux",
+          transitiveDependencies: [
+            expect.objectContaining({
+              name: "milk powder",
+            }),
+          ],
+        }),
+      ],
+      repository: expect.objectContaining({
+        id: "repo_public",
+        slug: "public-curry",
+      }),
+    });
+    expect(response.status).toBe(200);
+  });
+
+  it("rejects unsupported dependency methods with an Allow header", async () => {
+    const response = await handleApiRequest(
+      new Request("https://example.test/api/repos/test-user/public-curry/dependencies", {
+        method: "POST",
+      }),
+      env,
+    );
+
+    await expect(parseJson(response)).resolves.toEqual({
+      error: {
+        code: "method_not_allowed",
+        message: "This HTTP method is not allowed.",
+      },
+    });
+    expect(response.status).toBe(405);
+    expect(response.headers.get("allow")).toBe("GET");
   });
 
   it("creates repository metadata for the authenticated owner", async () => {
@@ -1119,6 +1188,18 @@ function createRecipeRepository(
         repositories[index] = repository;
       }
       return repository;
+    },
+  };
+}
+
+function createRecipeComponentRepository(
+  initialComponents: Awaited<ReturnType<RecipeComponentReadRepository["listByRepositoryId"]>>,
+): RecipeComponentReadRepository {
+  const components = [...initialComponents];
+
+  return {
+    async listByRepositoryId(repositoryId) {
+      return components.filter((component) => component.recipeId === repositoryId);
     },
   };
 }
