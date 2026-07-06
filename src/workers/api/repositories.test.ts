@@ -235,6 +235,37 @@ describe("repository API handlers", () => {
     expect(response.status).toBe(200);
   });
 
+  it("returns unlisted repository dependencies without requiring login", async () => {
+    const unlistedRepository = {
+      ...privateRepository,
+      id: "repo_unlisted",
+      slug: "unlisted-curry",
+      visibility: "unlisted",
+    } satisfies CloudRecipeRepository;
+    const response = await handleGetRepositoryDependencies(
+      new Request("https://example.test/api/repos/test-user/unlisted-curry/dependencies"),
+      "test-user",
+      "unlisted-curry",
+      env,
+      {
+        recipeComponents: createRecipeComponentRepository([
+          { ...recipeComponent, recipeId: "repo_unlisted" },
+        ]),
+        recipeRepositories: createRecipeRepository([unlistedRepository]),
+      },
+    );
+
+    await expect(parseJson(response)).resolves.toEqual({
+      components: [expect.objectContaining({ id: "component_roux" })],
+      repository: expect.objectContaining({
+        id: "repo_unlisted",
+        slug: "unlisted-curry",
+        visibility: "unlisted",
+      }),
+    });
+    expect(response.status).toBe(200);
+  });
+
   it("keeps private repository dependencies owner-only", async () => {
     const unauthenticated = await handleGetRepositoryDependencies(
       new Request("https://example.test/api/repos/test-user/private-curry/dependencies"),
