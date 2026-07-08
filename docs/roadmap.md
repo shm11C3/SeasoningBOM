@@ -108,6 +108,7 @@ Current implementation checkpoint:
 - `src/workers/auth/clerk.ts` verifies Clerk session tokens with `@clerk/backend`, `CLERK_JWT_KEY`, and `CLERK_AUTHORIZED_PARTIES`, requiring a user subject, session id, and allowed `azp`.
 - `GET /api/me` and `POST /api/me/profile` are wired to D1 `user_profiles` through `D1UserProfileRepository`.
 - `GET /api/repos`, `GET /api/repos/:owner/:repo`, `POST /api/repos`, `PATCH /api/repos/:owner/:repo`, and `DELETE /api/repos/:owner/:repo` are wired to D1 `recipe_repositories` metadata through `D1RecipeRepository`.
+- Creating a repository records `recipe_created`, content-affecting repository metadata updates record `recipe_updated`, and forking a repository records `repository_forked` in `contribution_events` in the same D1 batch as the repository write. Visibility-only or no-op updates do not create contribution events. Events derived from private repositories are stored as private contribution events.
 - Public repositories can be listed and fetched without login. Unlisted repositories can be fetched by exact URL but are excluded from listings. Private repository metadata is owner-only.
 - `GET /api/repos/:owner/:repo/dependencies` and `PUT /api/repos/:owner/:repo/dependencies` are wired to D1 `recipe_components` and `ingredient_dependencies` through `D1RecipeComponentRepository`.
 - Repository dependency reads use the same public / unlisted / private read authorization as repository metadata. Repository dependency replacement is owner-only and requires a bearer token.
@@ -121,7 +122,7 @@ Current implementation checkpoint:
 - Creating a cooking log also creates a `cooking_logged` contribution event in the same D1 batch. Public cooking-log reads expose only logs from users with `contribution_visibility = "public"` plus the viewer's own logs.
 - `GET /api/users/:username/profile`, `GET /api/users/:username/contributions`, and `GET /api/users/:username/contributions/:date` are wired to D1 `user_profiles` and `contribution_events` through `D1ContributionRepository`.
 - Profile contribution reads expose annual graph counts for `summary_only` users, hide `private` contribution graphs from third parties, and expose day-level event details only to the owner or for `public` profiles.
-- Protected endpoints reject missing or invalid sessions before reaching protected handlers. Non-cooking contribution automation / contribution CRUD endpoints, and granular component/dependency CRUD endpoints are still not implemented.
+- Protected endpoints reject missing or invalid sessions before reaching protected handlers. EOL rescue contribution automation, contribution CRUD endpoints, and granular component/dependency CRUD endpoints are still not implemented.
 
 Exit criteria:
 

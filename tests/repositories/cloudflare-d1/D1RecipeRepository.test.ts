@@ -53,6 +53,74 @@ describe("D1RecipeRepository", () => {
     await expect(recipes.findByOwnerAndSlug("test-user", "missing")).resolves.toBeNull();
   });
 
+  it("creates repositories with contribution events in one D1 batch", async () => {
+    const result = await recipes.createWithContribution({
+      contribution: {
+        eventType: "recipe_created",
+        id: "contribution_create",
+        metadata: {
+          repositoryName: "Curry Rice",
+          repositoryOwnerHandle: "test-user",
+          repositorySlug: "curry-rice",
+          version: "0.1.0",
+        },
+        occurredAt: "2026-07-06T01:02:03.000Z",
+        occurredOn: "2026-07-06",
+        visibility: "summary_only",
+      },
+      id: "repo_test",
+      name: "Curry Rice",
+      now: "2026-07-06T01:02:03.000Z",
+      ownerHandle: "test-user",
+      ownerUserId: "profile_test",
+      slug: "curry-rice",
+    });
+
+    await expect(recipes.findByOwnerAndSlug("test-user", "curry-rice")).resolves.toEqual(
+      result.repository,
+    );
+    expect(result.contributionEvent).toEqual({
+      contributionCount: 1,
+      eventType: "recipe_created",
+      id: "contribution_create",
+      metadata: {
+        repositoryName: "Curry Rice",
+        repositoryOwnerHandle: "test-user",
+        repositorySlug: "curry-rice",
+        version: "0.1.0",
+      },
+      occurredAt: "2026-07-06T01:02:03.000Z",
+      occurredOn: "2026-07-06",
+      repositoryId: "repo_test",
+      userId: "profile_test",
+      visibility: "summary_only",
+    });
+    expect(
+      sqlite
+        .prepare(
+          `SELECT id, user_id, event_type, repository_id, occurred_on, occurred_at,
+                  contribution_count, visibility, metadata_json
+           FROM contribution_events`,
+        )
+        .get(),
+    ).toEqual({
+      contribution_count: 1,
+      event_type: "recipe_created",
+      id: "contribution_create",
+      metadata_json: JSON.stringify({
+        repositoryName: "Curry Rice",
+        repositoryOwnerHandle: "test-user",
+        repositorySlug: "curry-rice",
+        version: "0.1.0",
+      }),
+      occurred_at: "2026-07-06T01:02:03.000Z",
+      occurred_on: "2026-07-06",
+      repository_id: "repo_test",
+      user_id: "profile_test",
+      visibility: "summary_only",
+    });
+  });
+
   it("lists public repositories only", async () => {
     await recipes.create({
       id: "repo_public",
@@ -117,6 +185,80 @@ describe("D1RecipeRepository", () => {
       name: "Updated Curry",
       updatedAt: "2026-07-06T02:03:04.000Z",
       visibility: "private",
+    });
+  });
+
+  it("updates repositories with contribution events in one D1 batch", async () => {
+    const created = await recipes.create({
+      id: "repo_test",
+      name: "Curry Rice",
+      now: "2026-07-06T01:02:03.000Z",
+      ownerHandle: "test-user",
+      ownerUserId: "profile_test",
+      slug: "curry-rice",
+    });
+
+    const result = await recipes.updateWithContribution({
+      ...created,
+      contribution: {
+        eventType: "recipe_updated",
+        id: "contribution_update",
+        metadata: {
+          previousRepositorySlug: "curry-rice",
+          repositoryName: "Updated Curry",
+          repositoryOwnerHandle: "test-user",
+          repositorySlug: "updated-curry",
+          version: "1.0.0",
+        },
+        occurredAt: "2026-07-06T02:03:04.000Z",
+        occurredOn: "2026-07-06",
+        visibility: "summary_only",
+      },
+      name: "Updated Curry",
+      now: "2026-07-06T02:03:04.000Z",
+      slug: "updated-curry",
+      version: "1.0.0",
+    });
+
+    await expect(recipes.findByOwnerAndSlug("test-user", "updated-curry")).resolves.toEqual(
+      result.repository,
+    );
+    expect(result.contributionEvent).toEqual({
+      contributionCount: 1,
+      eventType: "recipe_updated",
+      id: "contribution_update",
+      metadata: {
+        previousRepositorySlug: "curry-rice",
+        repositoryName: "Updated Curry",
+        repositoryOwnerHandle: "test-user",
+        repositorySlug: "updated-curry",
+        version: "1.0.0",
+      },
+      occurredAt: "2026-07-06T02:03:04.000Z",
+      occurredOn: "2026-07-06",
+      repositoryId: "repo_test",
+      userId: "profile_test",
+      visibility: "summary_only",
+    });
+    expect(
+      sqlite
+        .prepare(
+          `SELECT event_type, repository_id, occurred_on, contribution_count, metadata_json
+           FROM contribution_events`,
+        )
+        .get(),
+    ).toEqual({
+      contribution_count: 1,
+      event_type: "recipe_updated",
+      metadata_json: JSON.stringify({
+        previousRepositorySlug: "curry-rice",
+        repositoryName: "Updated Curry",
+        repositoryOwnerHandle: "test-user",
+        repositorySlug: "updated-curry",
+        version: "1.0.0",
+      }),
+      occurred_on: "2026-07-06",
+      repository_id: "repo_test",
     });
   });
 
