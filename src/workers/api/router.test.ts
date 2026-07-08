@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type {
-  CloudContributionEvent,
+  ContributionDateCount,
+  ContributionRepository,
+  CloudContributionEvent as ProfileContributionEvent,
+} from "../../repositories/cloudflare-d1/D1ContributionRepository";
+import type {
   CloudCookingLog,
+  CloudContributionEvent as CookingLogContributionEvent,
   CookingLogRepository,
   CreateCookingLogWithContributionInput,
 } from "../../repositories/cloudflare-d1/D1CookingLogRepository";
@@ -139,6 +144,21 @@ const cookingLog: CloudCookingLog = {
   repositoryId: "repo_public",
   result: "cooked",
   userId: "profile_other",
+};
+
+const contributionEvent: ProfileContributionEvent = {
+  contributionCount: 1,
+  eventType: "cooking_logged",
+  id: "contribution_cook",
+  metadata: {
+    repositoryName: "Public Curry",
+    result: "cooked",
+  },
+  occurredAt: "2026-07-06T04:05:06.000Z",
+  occurredOn: "2026-07-06",
+  repositoryId: "repo_public",
+  userId: "profile_test",
+  visibility: "summary_only",
 };
 
 async function parseJson(response: Response) {
@@ -1663,34 +1683,248 @@ describe("Worker API router", () => {
     });
   });
 
-  it("recognizes planned public profile routes without implementing them yet", async () => {
+  it("returns public profile data through the concrete Hono route", async () => {
     const response = await handleApiRequest(
-      new Request("https://example.test/api/users/shoma/profile"),
+      new Request("https://example.test/api/users/test-user/profile"),
       env,
+      {
+        userProfiles: createUserProfileRepository([userProfile]),
+      },
     );
 
     await expect(parseJson(response)).resolves.toEqual({
-      error: {
-        code: "not_implemented",
-        message: "Profile API is not implemented yet.",
-      },
+      profile: expect.objectContaining({
+        contributionVisibility: "summary_only",
+        displayName: "Test User",
+        id: "profile_test",
+        username: "test-user",
+      }),
     });
-    expect(response.status).toBe(501);
+    expect(response.status).toBe(200);
   });
 
-  it("matches planned public profile routes with trailing slashes", async () => {
+  it("matches concrete public profile routes with trailing slashes", async () => {
     const response = await handleApiRequest(
-      new Request("https://example.test/api/users/shoma/profile/"),
+      new Request("https://example.test/api/users/test-user/profile/"),
       env,
+      {
+        userProfiles: createUserProfileRepository([userProfile]),
+      },
+    );
+
+    await expect(parseJson(response)).resolves.toEqual({
+      profile: expect.objectContaining({
+        id: "profile_test",
+        username: "test-user",
+      }),
+    });
+    expect(response.status).toBe(200);
+  });
+
+  it("returns contribution graph data through the concrete Hono route", async () => {
+    const response = await handleApiRequest(
+      new Request(
+        "https://example.test/api/users/test-user/contributions?from=2026-07-06&to=2026-07-08",
+      ),
+      env,
+      {
+        contributions: createContributionRepository([
+          { contributionCount: 1, occurredOn: "2026-07-06" },
+          { contributionCount: 7, occurredOn: "2026-07-08" },
+        ]),
+        userProfiles: createUserProfileRepository([userProfile]),
+      },
+    );
+
+    await expect(parseJson(response)).resolves.toEqual({
+      days: [
+        { contributionCount: 1, date: "2026-07-06", level: 1 },
+        { contributionCount: 0, date: "2026-07-07", level: 0 },
+        { contributionCount: 7, date: "2026-07-08", level: 4 },
+      ],
+      detailsVisible: false,
+      from: "2026-07-06",
+      profile: expect.objectContaining({
+        id: "profile_test",
+        username: "test-user",
+      }),
+      to: "2026-07-08",
+      totalContributions: 8,
+    });
+    expect(response.status).toBe(200);
+  });
+
+  it("treats valid sessions without a bootstrapped profile as anonymous for contribution reads", async () => {
+    const targetProfile: UserProfile = {
+      ...userProfile,
+      authSubject: "user_target",
+      id: "profile_target",
+      username: "target-user",
+    };
+    const response = await handleApiRequest(
+      new Request(
+        "https://example.test/api/users/target-user/contributions?from=2026-07-06&to=2026-07-06",
+        {
+          headers: {
+            authorization: "Bearer fake-session",
+          },
+        },
+      ),
+      configuredEnv,
+      {
+        ...validSessionAuth,
+        contributions: createContributionRepository([
+          { contributionCount: 1, occurredOn: "2026-07-06" },
+        ]),
+        userProfiles: createUserProfileRepository([targetProfile]),
+      },
+    );
+
+    await expect(parseJson(response)).resolves.toEqual(
+      expect.objectContaining({
+        detailsVisible: false,
+        profile: expect.objectContaining({
+          id: "profile_target",
+        }),
+        totalContributions: 1,
+      }),
+    );
+    expect(response.status).toBe(200);
+  });
+
+  it("returns a JSON error when optional contribution auth profile lookup fails", async () => {
+    const response = await handleApiRequest(
+      new Request(
+        "https://example.test/api/users/test-user/contributions?from=2026-07-06&to=2026-07-06",
+        {
+          headers: {
+            authorization: "Bearer fake-session",
+          },
+        },
+      ),
+      configuredEnv,
+      {
+        ...validSessionAuth,
+        contributions: createContributionRepository([]),
+        userProfiles: {
+          ...createUserProfileRepository([userProfile]),
+          async findByAuthSubject() {
+            throw new Error("D1 unavailable");
+          },
+        },
+      },
     );
 
     await expect(parseJson(response)).resolves.toEqual({
       error: {
-        code: "not_implemented",
-        message: "Profile API is not implemented yet.",
+        code: "internal_error",
+        message: "Failed to load profile.",
       },
     });
-    expect(response.status).toBe(501);
+    expect(response.status).toBe(500);
+  });
+
+  it("returns summary-only contribution day details to the owner through the router", async () => {
+    const response = await handleApiRequest(
+      new Request("https://example.test/api/users/test-user/contributions/2026-07-06", {
+        headers: {
+          authorization: "Bearer fake-session",
+        },
+      }),
+      configuredEnv,
+      {
+        ...validSessionAuth,
+        contributions: createContributionRepository(
+          [{ contributionCount: 1, occurredOn: "2026-07-06" }],
+          [contributionEvent],
+        ),
+        userProfiles: createUserProfileRepository([userProfile]),
+      },
+    );
+
+    await expect(parseJson(response)).resolves.toEqual({
+      contributionCount: 1,
+      date: "2026-07-06",
+      detailsVisible: true,
+      events: [
+        expect.objectContaining({
+          id: "contribution_cook",
+          visibility: "summary_only",
+        }),
+      ],
+      level: 1,
+      profile: expect.objectContaining({
+        id: "profile_test",
+      }),
+    });
+    expect(response.status).toBe(200);
+  });
+
+  it("hides private contribution graphs from anonymous route callers", async () => {
+    const privateProfile: UserProfile = {
+      ...userProfile,
+      authSubject: "user_private",
+      contributionVisibility: "private",
+      id: "profile_private",
+      username: "private-user",
+    };
+    const response = await handleApiRequest(
+      new Request(
+        "https://example.test/api/users/private-user/contributions?from=2026-07-06&to=2026-07-06",
+      ),
+      env,
+      {
+        contributions: createContributionRepository([
+          { contributionCount: 2, occurredOn: "2026-07-06" },
+        ]),
+        userProfiles: createUserProfileRepository([privateProfile]),
+      },
+    );
+
+    await expect(parseJson(response)).resolves.toEqual({
+      error: {
+        code: "not_found",
+        message: "Profile not found.",
+      },
+    });
+    expect(response.status).toBe(404);
+  });
+
+  it("rejects unsupported profile contribution methods with Allow headers", async () => {
+    const profilePost = await handleApiRequest(
+      new Request("https://example.test/api/users/test-user/profile", { method: "POST" }),
+      env,
+    );
+    const contributionsPost = await handleApiRequest(
+      new Request("https://example.test/api/users/test-user/contributions", { method: "POST" }),
+      env,
+    );
+    const contributionDayHead = await handleApiRequest(
+      new Request("https://example.test/api/users/test-user/contributions/2026-07-06", {
+        method: "HEAD",
+      }),
+      env,
+    );
+
+    expect(profilePost.status).toBe(405);
+    expect(profilePost.headers.get("allow")).toBe("GET");
+    await expect(parseJson(profilePost)).resolves.toEqual({
+      error: {
+        code: "method_not_allowed",
+        message: "This HTTP method is not allowed.",
+      },
+    });
+    expect(contributionsPost.status).toBe(405);
+    expect(contributionsPost.headers.get("allow")).toBe("GET");
+    await expect(parseJson(contributionsPost)).resolves.toEqual({
+      error: {
+        code: "method_not_allowed",
+        message: "This HTTP method is not allowed.",
+      },
+    });
+    expect(contributionDayHead.status).toBe(405);
+    expect(contributionDayHead.headers.get("allow")).toBe("GET");
+    await expect(contributionDayHead.text()).resolves.toBe("");
   });
 });
 
@@ -1908,6 +2142,31 @@ function createInventoryRepository(initialItems: CloudInventoryItem[]): Inventor
   };
 }
 
+function createContributionRepository(
+  initialCounts: ContributionDateCount[],
+  initialEvents: ProfileContributionEvent[] = [],
+): ContributionRepository {
+  const counts = [...initialCounts];
+  const events = [...initialEvents];
+
+  return {
+    async listCountsByDate(input) {
+      return counts.filter(
+        (count) => count.occurredOn >= input.from && count.occurredOn <= input.to,
+      );
+    },
+    async listEventsForDate(input) {
+      return events.filter((event) => {
+        return (
+          event.userId === input.userId &&
+          event.occurredOn === input.occurredOn &&
+          (!input.publicOnly || event.visibility === "public")
+        );
+      });
+    },
+  };
+}
+
 function createCookingLogRepository(initialLogs: CloudCookingLog[]): CookingLogRepository {
   const logs = [...initialLogs];
 
@@ -1925,7 +2184,7 @@ function createCookingLogRepository(initialLogs: CloudCookingLog[]): CookingLogR
         result: input.result,
         userId: input.userId,
       };
-      const contributionEvent: CloudContributionEvent = {
+      const contributionEvent: CookingLogContributionEvent = {
         contributionCount: 1,
         eventType: "cooking_logged",
         id: input.contributionEventId,

@@ -19,6 +19,9 @@ import {
 } from "./inventory";
 import {
   handleGetMe,
+  handleGetPublicProfile,
+  handleGetUserContributionDay,
+  handleGetUserContributions,
   handlePostMeProfile,
   type ProfileRouteOptions,
   requireBootstrappedProfile,
@@ -44,7 +47,6 @@ import {
   jsonResponse,
   methodNotAllowed,
   notFound,
-  notImplemented,
   unauthorized,
 } from "./responses";
 import type { WorkerEnv } from "./types";
@@ -57,13 +59,6 @@ export type WorkerApiOptions = ClerkAuthenticationOptions &
 
 type WorkerApiHonoEnv = {
   Bindings: WorkerEnv;
-};
-
-type ScaffoldRoute = {
-  message: string;
-  path: string;
-  protectedMethods?: readonly string[];
-  publicMethods?: readonly string[];
 };
 
 type HeadMethodRoute = {
@@ -109,33 +104,15 @@ const coreRoutes = {
   },
   inventory: { allowedMethods: ["GET", "POST"], path: "/api/inventory" },
   inventoryItem: { allowedMethods: ["PATCH", "DELETE"], path: "/api/inventory/:id" },
+  userProfile: { allowedMethods: ["GET"], path: "/api/users/:username/profile" },
+  userContributions: { allowedMethods: ["GET"], path: "/api/users/:username/contributions" },
+  userContributionDay: {
+    allowedMethods: ["GET"],
+    path: "/api/users/:username/contributions/:date",
+  },
 } as const satisfies Record<string, HeadMethodRoute>;
 
-const repoScaffoldRoutes: ScaffoldRoute[] = [];
-
-const profileScaffoldRoutes: ScaffoldRoute[] = [
-  {
-    message: "Profile API is not implemented yet.",
-    path: "/api/users/:username/profile",
-    publicMethods: ["GET"],
-  },
-  {
-    message: "Profile API is not implemented yet.",
-    path: "/api/users/:username/contributions",
-    publicMethods: ["GET"],
-  },
-  {
-    message: "Profile API is not implemented yet.",
-    path: "/api/users/:username/contributions/:date",
-    publicMethods: ["GET"],
-  },
-];
-
-const headMethodRoutes: HeadMethodRoute[] = [
-  ...Object.values(coreRoutes),
-  ...toHeadMethodRoutes(repoScaffoldRoutes),
-  ...toHeadMethodRoutes(profileScaffoldRoutes),
-];
+const headMethodRoutes: HeadMethodRoute[] = Object.values(coreRoutes);
 
 export async function handleApiRequest(
   request: Request,
@@ -624,8 +601,75 @@ export function createWorkerApiApp(options: WorkerApiOptions = {}): Hono<WorkerA
     methodNotAllowed(coreRoutes.inventoryItem.allowedMethods),
   );
 
-  registerScaffoldRoutes(app, repoScaffoldRoutes, options);
-  registerScaffoldRoutes(app, profileScaffoldRoutes, options);
+  app.get(coreRoutes.userProfile.path, async (context) => {
+    const usernameResult = getRequiredPathParam(context.req.param("username"), context.req.raw);
+    if (!usernameResult.ok) {
+      return usernameResult.response;
+    }
+
+    return handleGetPublicProfile(usernameResult.value, context.env, options);
+  });
+  app.all(coreRoutes.userProfile.path, () =>
+    methodNotAllowed(coreRoutes.userProfile.allowedMethods),
+  );
+
+  app.get(coreRoutes.userContributions.path, async (context) => {
+    const usernameResult = getRequiredPathParam(context.req.param("username"), context.req.raw);
+    if (!usernameResult.ok) {
+      return usernameResult.response;
+    }
+
+    const viewerResult = await resolveOptionalAuthenticatedProfile(
+      context.req.raw,
+      context.env,
+      options,
+    );
+    if (!viewerResult.ok) {
+      return viewerResult.response;
+    }
+
+    return handleGetUserContributions(
+      context.req.raw,
+      usernameResult.value,
+      viewerResult.profile,
+      context.env,
+      options,
+    );
+  });
+  app.all(coreRoutes.userContributions.path, () =>
+    methodNotAllowed(coreRoutes.userContributions.allowedMethods),
+  );
+
+  app.get(coreRoutes.userContributionDay.path, async (context) => {
+    const usernameResult = getRequiredPathParam(context.req.param("username"), context.req.raw);
+    const dateResult = getRequiredPathParam(context.req.param("date"), context.req.raw);
+    if (!usernameResult.ok) {
+      return usernameResult.response;
+    }
+    if (!dateResult.ok) {
+      return dateResult.response;
+    }
+
+    const viewerResult = await resolveOptionalAuthenticatedProfile(
+      context.req.raw,
+      context.env,
+      options,
+    );
+    if (!viewerResult.ok) {
+      return viewerResult.response;
+    }
+
+    return handleGetUserContributionDay(
+      usernameResult.value,
+      dateResult.value,
+      viewerResult.profile,
+      context.env,
+      options,
+    );
+  });
+  app.all(coreRoutes.userContributionDay.path, () =>
+    methodNotAllowed(coreRoutes.userContributionDay.allowedMethods),
+  );
 
   app.notFound((context) => notFound(pathnameFromRequest(context.req.raw)));
 
@@ -651,59 +695,6 @@ function handleHealth(request: Request): Response {
   });
 }
 
-function registerScaffoldRoutes(
-  app: Hono<WorkerApiHonoEnv>,
-  routes: readonly ScaffoldRoute[],
-  options: WorkerApiOptions,
-): void {
-  for (const route of routes) {
-    registerScaffoldRoute(app, route, options);
-  }
-}
-
-function registerScaffoldRoute(
-  app: Hono<WorkerApiHonoEnv>,
-  route: ScaffoldRoute,
-  options: WorkerApiOptions,
-): void {
-  const publicMethods = [...(route.publicMethods ?? [])];
-  const protectedMethods = [...(route.protectedMethods ?? [])];
-  const allowedMethods = [...publicMethods, ...protectedMethods];
-
-  if (publicMethods.length > 0) {
-    app.on(publicMethods, route.path, () => notImplemented(route.message));
-  }
-
-  if (protectedMethods.length > 0) {
-    app.on(protectedMethods, route.path, (context) =>
-      handleProtectedScaffold(
-        context.req.raw,
-        context.env,
-        context.req.raw.method,
-        route.message,
-        options,
-      ),
-    );
-  }
-
-  app.all(route.path, () => methodNotAllowed(allowedMethods));
-}
-
-async function handleProtectedScaffold(
-  request: Request,
-  env: WorkerEnv,
-  method: string,
-  message: string,
-  options: WorkerApiOptions,
-): Promise<Response> {
-  const profileResult = await requireAuthenticatedProfile(request, env, method, options);
-  if (!profileResult.ok) {
-    return profileResult.response;
-  }
-
-  return notImplemented(message);
-}
-
 function normalizePathname(pathname: string): string {
   const normalized = pathname.endsWith("/") && pathname !== "/" ? pathname.slice(0, -1) : pathname;
   return normalized;
@@ -711,15 +702,6 @@ function normalizePathname(pathname: string): string {
 
 function pathnameFromRequest(request: Request): string {
   return normalizePathname(new URL(request.url).pathname);
-}
-
-function toHeadMethodRoutes(routes: readonly ScaffoldRoute[]): HeadMethodRoute[] {
-  return routes
-    .map((route) => ({
-      allowedMethods: [...(route.publicMethods ?? []), ...(route.protectedMethods ?? [])],
-      path: route.path,
-    }))
-    .filter((route) => route.allowedMethods.length > 0);
 }
 
 function getHeadMethodAllowlist(request: Request): readonly string[] | null {
@@ -820,6 +802,26 @@ async function requireAuthenticatedProfile(
   }
 
   return requireBootstrappedProfile(sessionResult.session, env, options);
+}
+
+async function resolveOptionalAuthenticatedProfile(
+  request: Request,
+  env: WorkerEnv,
+  options: WorkerApiOptions,
+): Promise<{ ok: true; profile: UserProfile | null } | { ok: false; response: Response }> {
+  const sessionResult = await authenticateClerkRequest(request, env, options);
+  if (!sessionResult.ok) {
+    return { ok: true, profile: null };
+  }
+
+  const profileResult = await requireBootstrappedProfile(sessionResult.session, env, options);
+  if (!profileResult.ok) {
+    return profileResult.response.status >= 500
+      ? { ok: false, response: profileResult.response }
+      : { ok: true, profile: null };
+  }
+
+  return { ok: true, profile: profileResult.profile };
 }
 
 function isMutationMethod(method: string): boolean {
