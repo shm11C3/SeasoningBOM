@@ -32,6 +32,7 @@
 | [0008](adr/0008-clerk-social-auth-for-cloud-mvp.md) | Clerk social authentication for the Cloud MVP |
 | [0009](adr/0009-hono-for-worker-routing.md) | Use Hono for Worker API routing |
 | [0010](adr/0010-explicit-inventory-links-for-eol-rescue.md) | Use explicit inventory links for EOL Rescue |
+| [0011](adr/0011-granular-dependency-mutation-api.md) | Use full replacement for granular dependency mutations |
 
 ## Reading Order
 

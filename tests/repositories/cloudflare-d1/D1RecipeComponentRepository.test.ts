@@ -93,12 +93,14 @@ describe("D1RecipeComponentRepository", () => {
           {
             allergens: ["milk"],
             dependencyType: "transitive",
+            id: "dependency_milk",
             name: "milk powder",
             notes: "Often hidden in roux blocks.",
           },
           {
             allergens: ["soy"],
             dependencyType: "transitive",
+            id: "dependency_soy",
             name: "soy lecithin",
             notes: undefined,
           },
@@ -131,6 +133,7 @@ describe("D1RecipeComponentRepository", () => {
         transitiveDependencies: [
           expect.objectContaining({
             allergens: [],
+            id: "dependency_soy",
             name: "soy sauce",
           }),
         ],
@@ -207,6 +210,7 @@ describe("D1RecipeComponentRepository", () => {
           {
             allergens: ["milk"],
             dependencyType: "transitive",
+            id: "component_new:dependency:0",
             name: "milk powder",
             notes: "Often hidden.",
           },
@@ -240,6 +244,129 @@ describe("D1RecipeComponentRepository", () => {
     expect(sqlite.prepare("SELECT COUNT(*) AS count FROM ingredient_dependencies").get()).toEqual({
       count: 0,
     });
+  });
+
+  it("creates, updates, and deletes individual components", async () => {
+    await expect(
+      components.createComponent(
+        "repo_curry",
+        {
+          allergens: ["wheat"],
+          alternatives: ["brown rice"],
+          dependencyType: "required",
+          id: "component_rice",
+          ingredientName: "rice",
+          quantity: 2,
+          recipeId: "repo_curry",
+          required: true,
+          transitiveDependencies: [
+            {
+              allergens: ["soy"],
+              dependencyType: "peer",
+              id: "dependency_furikake",
+              name: "furikake",
+            },
+          ],
+          unit: "go",
+        },
+        "2026-07-06T03:04:05.000Z",
+      ),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        id: "component_rice",
+        recipeId: "repo_curry",
+        transitiveDependencies: [
+          expect.objectContaining({
+            id: "dependency_furikake",
+            name: "furikake",
+          }),
+        ],
+      }),
+    );
+
+    await expect(
+      components.updateComponent(
+        "repo_curry",
+        {
+          allergens: [],
+          alternatives: [],
+          dependencyType: "optional",
+          id: "component_rice",
+          ingredientName: "brown rice",
+          quantity: 1,
+          recipeId: "repo_curry",
+          required: false,
+          transitiveDependencies: [],
+          unit: "go",
+        },
+        "2026-07-06T04:05:06.000Z",
+      ),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        id: "component_rice",
+        ingredientName: "brown rice",
+        required: false,
+        transitiveDependencies: [],
+      }),
+    );
+
+    await expect(components.deleteComponent("repo_curry", "component_rice")).resolves.toBe(true);
+    await expect(
+      components.findByRepositoryIdAndComponentId("repo_curry", "component_rice"),
+    ).resolves.toBeNull();
+    await expect(components.deleteComponent("repo_curry", "component_rice")).resolves.toBe(false);
+  });
+
+  it("creates, updates, and deletes individual ingredient dependencies", async () => {
+    insertComponent(sqlite, {
+      id: "component_roux",
+      ingredientName: "curry-roux",
+      repositoryId: "repo_curry",
+    });
+
+    await expect(
+      components.createDependency("repo_curry", "component_roux", {
+        allergens: ["soy"],
+        dependencyType: "transitive",
+        id: "dependency_soy",
+        name: "soy lecithin",
+        notes: "Check the packet.",
+      }),
+    ).resolves.toEqual({
+      allergens: ["soy"],
+      dependencyType: "transitive",
+      id: "dependency_soy",
+      name: "soy lecithin",
+      notes: "Check the packet.",
+    });
+
+    await expect(
+      components.updateDependency("repo_curry", "component_roux", {
+        allergens: [],
+        dependencyType: "substitute",
+        id: "dependency_soy",
+        name: "soy sauce",
+      }),
+    ).resolves.toEqual({
+      allergens: [],
+      dependencyType: "substitute",
+      id: "dependency_soy",
+      name: "soy sauce",
+      notes: undefined,
+    });
+
+    await expect(
+      components.deleteDependency("repo_curry", "component_roux", "dependency_soy"),
+    ).resolves.toBe(true);
+    await expect(
+      components.deleteDependency("repo_curry", "component_roux", "dependency_soy"),
+    ).resolves.toBe(false);
+    await expect(components.listByRepositoryId("repo_curry")).resolves.toEqual([
+      expect.objectContaining({
+        id: "component_roux",
+        transitiveDependencies: [],
+      }),
+    ]);
   });
 });
 

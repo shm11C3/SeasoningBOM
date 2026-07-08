@@ -781,6 +781,479 @@ describe("Worker API router", () => {
     expect(response.status).toBe(200);
   });
 
+  it("creates, updates, and deletes components through concrete Hono routes", async () => {
+    const recipeComponents = createRecipeComponentRepository([]);
+    const createResponse = await handleApiRequest(
+      new Request("https://example.test/api/repos/test-user/public-curry/dependencies/components", {
+        body: JSON.stringify({
+          dependencyType: "required",
+          id: "component_rice",
+          ingredientName: "rice",
+          quantity: 2,
+          unit: "go",
+        }),
+        headers: {
+          authorization: "Bearer fake-session",
+        },
+        method: "POST",
+      }),
+      configuredEnv,
+      {
+        ...validSessionAuth,
+        recipeComponents,
+        recipeRepositories: createRecipeRepository([publicRecipeRepository]),
+        userProfiles: createUserProfileRepository([userProfile]),
+      },
+    );
+    const updateResponse = await handleApiRequest(
+      new Request(
+        "https://example.test/api/repos/test-user/public-curry/dependencies/components/component_rice",
+        {
+          body: JSON.stringify({
+            dependencyType: "optional",
+            ingredientName: "brown rice",
+            quantity: 1,
+            required: false,
+            unit: "go",
+          }),
+          headers: {
+            authorization: "Bearer fake-session",
+          },
+          method: "PUT",
+        },
+      ),
+      configuredEnv,
+      {
+        ...validSessionAuth,
+        recipeComponents,
+        recipeRepositories: createRecipeRepository([publicRecipeRepository]),
+        userProfiles: createUserProfileRepository([userProfile]),
+      },
+    );
+    const deleteResponse = await handleApiRequest(
+      new Request(
+        "https://example.test/api/repos/test-user/public-curry/dependencies/components/component_rice",
+        {
+          headers: {
+            authorization: "Bearer fake-session",
+          },
+          method: "DELETE",
+        },
+      ),
+      configuredEnv,
+      {
+        ...validSessionAuth,
+        recipeComponents,
+        recipeRepositories: createRecipeRepository([publicRecipeRepository]),
+        userProfiles: createUserProfileRepository([userProfile]),
+      },
+    );
+
+    await expect(parseJson(createResponse)).resolves.toEqual({
+      component: expect.objectContaining({
+        id: "component_rice",
+        ingredientName: "rice",
+      }),
+      repository: expect.objectContaining({ id: "repo_public" }),
+    });
+    await expect(parseJson(updateResponse)).resolves.toEqual({
+      component: expect.objectContaining({
+        id: "component_rice",
+        ingredientName: "brown rice",
+        required: false,
+      }),
+      repository: expect.objectContaining({ id: "repo_public" }),
+    });
+    expect(createResponse.status).toBe(201);
+    expect(updateResponse.status).toBe(200);
+    expect(deleteResponse.status).toBe(204);
+  });
+
+  it("creates, updates, and deletes transitive dependencies through concrete Hono routes", async () => {
+    const recipeComponents = createRecipeComponentRepository([recipeComponent]);
+    const createResponse = await handleApiRequest(
+      new Request(
+        "https://example.test/api/repos/test-user/public-curry/dependencies/components/component_roux/dependencies",
+        {
+          body: JSON.stringify({
+            dependencyType: "transitive",
+            name: "soy lecithin",
+          }),
+          headers: {
+            authorization: "Bearer fake-session",
+          },
+          method: "POST",
+        },
+      ),
+      configuredEnv,
+      {
+        ...validSessionAuth,
+        createIngredientDependencyId: () => "dependency_soy",
+        recipeComponents,
+        recipeRepositories: createRecipeRepository([publicRecipeRepository]),
+        userProfiles: createUserProfileRepository([userProfile]),
+      },
+    );
+    const updateResponse = await handleApiRequest(
+      new Request(
+        "https://example.test/api/repos/test-user/public-curry/dependencies/components/component_roux/dependencies/dependency_soy",
+        {
+          body: JSON.stringify({
+            allergens: ["soy"],
+            dependencyType: "peer",
+            name: "soy sauce",
+          }),
+          headers: {
+            authorization: "Bearer fake-session",
+          },
+          method: "PUT",
+        },
+      ),
+      configuredEnv,
+      {
+        ...validSessionAuth,
+        recipeComponents,
+        recipeRepositories: createRecipeRepository([publicRecipeRepository]),
+        userProfiles: createUserProfileRepository([userProfile]),
+      },
+    );
+    const deleteResponse = await handleApiRequest(
+      new Request(
+        "https://example.test/api/repos/test-user/public-curry/dependencies/components/component_roux/dependencies/dependency_soy",
+        {
+          headers: {
+            authorization: "Bearer fake-session",
+          },
+          method: "DELETE",
+        },
+      ),
+      configuredEnv,
+      {
+        ...validSessionAuth,
+        recipeComponents,
+        recipeRepositories: createRecipeRepository([publicRecipeRepository]),
+        userProfiles: createUserProfileRepository([userProfile]),
+      },
+    );
+
+    await expect(parseJson(createResponse)).resolves.toEqual({
+      dependency: expect.objectContaining({
+        id: "dependency_soy",
+        name: "soy lecithin",
+      }),
+      repository: expect.objectContaining({ id: "repo_public" }),
+    });
+    await expect(parseJson(updateResponse)).resolves.toEqual({
+      dependency: expect.objectContaining({
+        allergens: ["soy"],
+        id: "dependency_soy",
+        name: "soy sauce",
+      }),
+      repository: expect.objectContaining({ id: "repo_public" }),
+    });
+    expect(createResponse.status).toBe(201);
+    expect(updateResponse.status).toBe(200);
+    expect(deleteResponse.status).toBe(204);
+  });
+
+  it("requires bearer auth for granular dependency mutations", async () => {
+    const componentResponse = await handleApiRequest(
+      new Request("https://example.test/api/repos/test-user/public-curry/dependencies/components", {
+        body: JSON.stringify({
+          dependencyType: "required",
+          ingredientName: "rice",
+          quantity: 2,
+          unit: "go",
+        }),
+        headers: {
+          cookie: "__session=fake-session",
+        },
+        method: "POST",
+      }),
+      configuredEnv,
+      {
+        ...validSessionAuth,
+        recipeComponents: createRecipeComponentRepository([]),
+        recipeRepositories: createRecipeRepository([publicRecipeRepository]),
+        userProfiles: createUserProfileRepository([userProfile]),
+      },
+    );
+    const componentUpdateResponse = await handleApiRequest(
+      new Request(
+        "https://example.test/api/repos/test-user/public-curry/dependencies/components/component_roux",
+        {
+          body: JSON.stringify({
+            dependencyType: "required",
+            ingredientName: "rice",
+            quantity: 2,
+            unit: "go",
+          }),
+          headers: {
+            cookie: "__session=fake-session",
+          },
+          method: "PUT",
+        },
+      ),
+      configuredEnv,
+      {
+        ...validSessionAuth,
+        recipeComponents: createRecipeComponentRepository([recipeComponent]),
+        recipeRepositories: createRecipeRepository([publicRecipeRepository]),
+        userProfiles: createUserProfileRepository([userProfile]),
+      },
+    );
+    const componentDeleteResponse = await handleApiRequest(
+      new Request(
+        "https://example.test/api/repos/test-user/public-curry/dependencies/components/component_roux",
+        {
+          headers: {
+            cookie: "__session=fake-session",
+          },
+          method: "DELETE",
+        },
+      ),
+      configuredEnv,
+      {
+        ...validSessionAuth,
+        recipeComponents: createRecipeComponentRepository([recipeComponent]),
+        recipeRepositories: createRecipeRepository([publicRecipeRepository]),
+        userProfiles: createUserProfileRepository([userProfile]),
+      },
+    );
+    const dependencyResponse = await handleApiRequest(
+      new Request(
+        "https://example.test/api/repos/test-user/public-curry/dependencies/components/component_roux/dependencies",
+        {
+          body: JSON.stringify({
+            dependencyType: "transitive",
+            name: "soy lecithin",
+          }),
+          headers: {
+            cookie: "__session=fake-session",
+          },
+          method: "POST",
+        },
+      ),
+      configuredEnv,
+      {
+        ...validSessionAuth,
+        recipeComponents: createRecipeComponentRepository([recipeComponent]),
+        recipeRepositories: createRecipeRepository([publicRecipeRepository]),
+        userProfiles: createUserProfileRepository([userProfile]),
+      },
+    );
+    const dependencyUpdateResponse = await handleApiRequest(
+      new Request(
+        "https://example.test/api/repos/test-user/public-curry/dependencies/components/component_roux/dependencies/dependency_milk",
+        {
+          body: JSON.stringify({
+            dependencyType: "transitive",
+            name: "milk powder",
+          }),
+          headers: {
+            cookie: "__session=fake-session",
+          },
+          method: "PUT",
+        },
+      ),
+      configuredEnv,
+      {
+        ...validSessionAuth,
+        recipeComponents: createRecipeComponentRepository([recipeComponent]),
+        recipeRepositories: createRecipeRepository([publicRecipeRepository]),
+        userProfiles: createUserProfileRepository([userProfile]),
+      },
+    );
+    const dependencyDeleteResponse = await handleApiRequest(
+      new Request(
+        "https://example.test/api/repos/test-user/public-curry/dependencies/components/component_roux/dependencies/dependency_milk",
+        {
+          headers: {
+            cookie: "__session=fake-session",
+          },
+          method: "DELETE",
+        },
+      ),
+      configuredEnv,
+      {
+        ...validSessionAuth,
+        recipeComponents: createRecipeComponentRepository([recipeComponent]),
+        recipeRepositories: createRecipeRepository([publicRecipeRepository]),
+        userProfiles: createUserProfileRepository([userProfile]),
+      },
+    );
+
+    await expect(parseJson(componentResponse)).resolves.toEqual({
+      error: {
+        code: "not_authenticated",
+        message: "Sign in with Clerk to access this endpoint.",
+      },
+    });
+    await expect(parseJson(dependencyResponse)).resolves.toEqual({
+      error: {
+        code: "not_authenticated",
+        message: "Sign in with Clerk to access this endpoint.",
+      },
+    });
+    await expect(parseJson(componentUpdateResponse)).resolves.toEqual({
+      error: {
+        code: "not_authenticated",
+        message: "Sign in with Clerk to access this endpoint.",
+      },
+    });
+    await expect(parseJson(componentDeleteResponse)).resolves.toEqual({
+      error: {
+        code: "not_authenticated",
+        message: "Sign in with Clerk to access this endpoint.",
+      },
+    });
+    await expect(parseJson(dependencyUpdateResponse)).resolves.toEqual({
+      error: {
+        code: "not_authenticated",
+        message: "Sign in with Clerk to access this endpoint.",
+      },
+    });
+    await expect(parseJson(dependencyDeleteResponse)).resolves.toEqual({
+      error: {
+        code: "not_authenticated",
+        message: "Sign in with Clerk to access this endpoint.",
+      },
+    });
+    expect(componentResponse.status).toBe(401);
+    expect(dependencyResponse.status).toBe(401);
+    expect(componentUpdateResponse.status).toBe(401);
+    expect(componentDeleteResponse.status).toBe(401);
+    expect(dependencyUpdateResponse.status).toBe(401);
+    expect(dependencyDeleteResponse.status).toBe(401);
+  });
+
+  it("returns not found for malformed granular dependency path parameters", async () => {
+    const requests = [
+      new Request("https://example.test/api/repos/%E0%A4%A/public-curry/dependencies/components", {
+        method: "POST",
+      }),
+      new Request(
+        "https://example.test/api/repos/%E0%A4%A/public-curry/dependencies/components/component_roux",
+        { method: "PUT" },
+      ),
+      new Request(
+        "https://example.test/api/repos/test-user/public-curry/dependencies/components/%E0%A4%A",
+        { method: "PUT" },
+      ),
+      new Request(
+        "https://example.test/api/repos/%E0%A4%A/public-curry/dependencies/components/component_roux",
+        { method: "DELETE" },
+      ),
+      new Request(
+        "https://example.test/api/repos/test-user/public-curry/dependencies/components/%E0%A4%A",
+        { method: "DELETE" },
+      ),
+      new Request(
+        "https://example.test/api/repos/%E0%A4%A/public-curry/dependencies/components/component_roux/dependencies",
+        { method: "POST" },
+      ),
+      new Request(
+        "https://example.test/api/repos/test-user/public-curry/dependencies/components/%E0%A4%A/dependencies",
+        { method: "POST" },
+      ),
+      new Request(
+        "https://example.test/api/repos/%E0%A4%A/public-curry/dependencies/components/component_roux/dependencies/dependency_milk",
+        { method: "PUT" },
+      ),
+      new Request(
+        "https://example.test/api/repos/test-user/public-curry/dependencies/components/%E0%A4%A/dependencies/dependency_milk",
+        { method: "PUT" },
+      ),
+      new Request(
+        "https://example.test/api/repos/test-user/public-curry/dependencies/components/component_roux/dependencies/%E0%A4%A",
+        { method: "PUT" },
+      ),
+      new Request(
+        "https://example.test/api/repos/%E0%A4%A/public-curry/dependencies/components/component_roux/dependencies/dependency_milk",
+        { method: "DELETE" },
+      ),
+      new Request(
+        "https://example.test/api/repos/test-user/public-curry/dependencies/components/%E0%A4%A/dependencies/dependency_milk",
+        { method: "DELETE" },
+      ),
+      new Request(
+        "https://example.test/api/repos/test-user/public-curry/dependencies/components/component_roux/dependencies/%E0%A4%A",
+        { method: "DELETE" },
+      ),
+    ];
+
+    for (const request of requests) {
+      const response = await handleApiRequest(request, env);
+
+      expect(response.status).toBe(404);
+      await expect(parseJson(response)).resolves.toEqual({
+        error: {
+          code: "not_found",
+          message: `No API route matches ${new URL(request.url).pathname}.`,
+        },
+      });
+    }
+  });
+
+  it("returns not found for malformed inventory and profile path parameters", async () => {
+    const requests = [
+      new Request("https://example.test/api/inventory/%E0%A4%A", { method: "PATCH" }),
+      new Request("https://example.test/api/inventory/%E0%A4%A", { method: "DELETE" }),
+      new Request("https://example.test/api/users/%E0%A4%A/profile"),
+      new Request("https://example.test/api/users/%E0%A4%A/contributions"),
+      new Request("https://example.test/api/users/%E0%A4%A/contributions/2026-07-06"),
+      new Request("https://example.test/api/users/test-user/contributions/%E0%A4%A"),
+    ];
+
+    for (const request of requests) {
+      const response = await handleApiRequest(request, env);
+
+      expect(response.status).toBe(404);
+      await expect(parseJson(response)).resolves.toEqual({
+        error: {
+          code: "not_found",
+          message: `No API route matches ${new URL(request.url).pathname}.`,
+        },
+      });
+    }
+  });
+
+  it("rejects unsupported granular dependency methods with Allow headers", async () => {
+    const componentCollectionResponse = await handleApiRequest(
+      new Request("https://example.test/api/repos/test-user/public-curry/dependencies/components"),
+      env,
+    );
+    const componentResponse = await handleApiRequest(
+      new Request(
+        "https://example.test/api/repos/test-user/public-curry/dependencies/components/component_roux",
+        { method: "POST" },
+      ),
+      env,
+    );
+    const dependencyCollectionResponse = await handleApiRequest(
+      new Request(
+        "https://example.test/api/repos/test-user/public-curry/dependencies/components/component_roux/dependencies",
+      ),
+      env,
+    );
+    const dependencyResponse = await handleApiRequest(
+      new Request(
+        "https://example.test/api/repos/test-user/public-curry/dependencies/components/component_roux/dependencies/dependency_milk",
+        { method: "POST" },
+      ),
+      env,
+    );
+
+    expect(componentCollectionResponse.status).toBe(405);
+    expect(componentCollectionResponse.headers.get("allow")).toBe("POST");
+    expect(componentResponse.status).toBe(405);
+    expect(componentResponse.headers.get("allow")).toBe("PUT, DELETE");
+    expect(dependencyCollectionResponse.status).toBe(405);
+    expect(dependencyCollectionResponse.headers.get("allow")).toBe("POST");
+    expect(dependencyResponse.status).toBe(405);
+    expect(dependencyResponse.headers.get("allow")).toBe("PUT, DELETE");
+  });
+
   it("requires bearer auth for dependency replacement", async () => {
     const response = await handleApiRequest(
       new Request("https://example.test/api/repos/test-user/public-curry/dependencies", {
@@ -2180,11 +2653,66 @@ function repositoryStarKey(key: { repositoryId: string; userId: string }): strin
 function createRecipeComponentRepository(
   initialComponents: Awaited<ReturnType<RecipeComponentWriteRepository["listByRepositoryId"]>>,
 ): RecipeComponentWriteRepository {
-  const components = [...initialComponents];
+  const components = initialComponents.map(cloneRecipeComponent);
 
   return {
+    async createComponent(repositoryId, component) {
+      const savedComponent = cloneRecipeComponent({ ...component, recipeId: repositoryId });
+      components.push(savedComponent);
+      return cloneRecipeComponent(savedComponent);
+    },
+    async createDependency(repositoryId, componentId, dependency) {
+      const component = components.find(
+        (item) => item.recipeId === repositoryId && item.id === componentId,
+      );
+      if (!component) {
+        return null;
+      }
+
+      const savedDependency = {
+        ...dependency,
+        allergens: [...dependency.allergens],
+        id: dependency.id ?? `${componentId}:dependency:${component.transitiveDependencies.length}`,
+      };
+      component.transitiveDependencies.push(savedDependency);
+      return { ...savedDependency, allergens: [...savedDependency.allergens] };
+    },
+    async deleteComponent(repositoryId, componentId) {
+      const index = components.findIndex(
+        (component) => component.recipeId === repositoryId && component.id === componentId,
+      );
+      if (index < 0) {
+        return false;
+      }
+      components.splice(index, 1);
+      return true;
+    },
+    async deleteDependency(repositoryId, componentId, dependencyId) {
+      const component = components.find(
+        (item) => item.recipeId === repositoryId && item.id === componentId,
+      );
+      if (!component) {
+        return false;
+      }
+      const index = component.transitiveDependencies.findIndex(
+        (dependency) => dependency.id === dependencyId,
+      );
+      if (index < 0) {
+        return false;
+      }
+      component.transitiveDependencies.splice(index, 1);
+      return true;
+    },
+    async findByRepositoryIdAndComponentId(repositoryId, componentId) {
+      const component =
+        components.find((item) => item.recipeId === repositoryId && item.id === componentId) ??
+        null;
+      return component ? cloneRecipeComponent(component) : null;
+    },
     async listByRepositoryId(repositoryId) {
-      return components.filter((component) => component.recipeId === repositoryId);
+      return components
+        .filter((component) => component.recipeId === repositoryId)
+        .map(cloneRecipeComponent);
     },
     async replaceByRepositoryId(repositoryId, nextComponents) {
       for (let index = components.length - 1; index >= 0; index -= 1) {
@@ -2193,13 +2721,52 @@ function createRecipeComponentRepository(
         }
       }
 
-      const savedComponents = nextComponents.map((component) => ({
-        ...component,
-        recipeId: repositoryId,
-      }));
+      const savedComponents = nextComponents.map((component) =>
+        cloneRecipeComponent({ ...component, recipeId: repositoryId }),
+      );
       components.push(...savedComponents);
-      return savedComponents;
+      return savedComponents.map(cloneRecipeComponent);
     },
+    async updateComponent(repositoryId, component) {
+      const index = components.findIndex(
+        (item) => item.recipeId === repositoryId && item.id === component.id,
+      );
+      if (index < 0) {
+        return null;
+      }
+      const savedComponent = cloneRecipeComponent({ ...component, recipeId: repositoryId });
+      components[index] = savedComponent;
+      return cloneRecipeComponent(savedComponent);
+    },
+    async updateDependency(repositoryId, componentId, dependency) {
+      const component = components.find(
+        (item) => item.recipeId === repositoryId && item.id === componentId,
+      );
+      if (!component || !dependency.id) {
+        return null;
+      }
+      const index = component.transitiveDependencies.findIndex((item) => item.id === dependency.id);
+      if (index < 0) {
+        return null;
+      }
+      const savedDependency = { ...dependency, allergens: [...dependency.allergens] };
+      component.transitiveDependencies[index] = savedDependency;
+      return { ...savedDependency, allergens: [...savedDependency.allergens] };
+    },
+  };
+}
+
+function cloneRecipeComponent(
+  component: Awaited<ReturnType<RecipeComponentWriteRepository["listByRepositoryId"]>>[number],
+): Awaited<ReturnType<RecipeComponentWriteRepository["listByRepositoryId"]>>[number] {
+  return {
+    ...component,
+    allergens: [...component.allergens],
+    alternatives: [...component.alternatives],
+    transitiveDependencies: component.transitiveDependencies.map((dependency) => ({
+      ...dependency,
+      allergens: [...dependency.allergens],
+    })),
   };
 }
 

@@ -108,12 +108,15 @@ type RecipeComponent = {
 
 ```ts
 type IngredientDependency = {
+  id?: string;
   name: string;
   dependencyType: "transitive" | "substitute" | "peer";
   allergens: Allergen[];
   notes?: string;
 };
 ```
+
+Cloud D1 MVP の `ingredient_dependencies.id` は個別 dependency mutation の stable target です。既存の local prototype や SeasoningBOM export 生成では未指定の dependency id も許容しますが、D1 に保存する時点で Workers / repository layer が id を割り当てます。
 
 Example:
 
@@ -122,8 +125,8 @@ Example:
   name: "curry-roux",
   dependencyType: "required",
   transitiveDependencies: [
-    { name: "wheat", dependencyType: "transitive", allergens: ["wheat"] },
-    { name: "milk", dependencyType: "transitive", allergens: ["milk"] }
+    { id: "dep_wheat", name: "wheat", dependencyType: "transitive", allergens: ["wheat"] },
+    { id: "dep_milk", name: "milk", dependencyType: "transitive", allergens: ["milk"] }
   ]
 }
 ```

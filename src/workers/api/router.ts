@@ -28,6 +28,8 @@ import {
 } from "./profile";
 import {
   handleDeleteRepository,
+  handleDeleteRepositoryComponent,
+  handleDeleteRepositoryDependency,
   handleDeleteRepositoryStar,
   handleGetRepository,
   handleGetRepositoryBom,
@@ -37,9 +39,13 @@ import {
   handlePatchRepository,
   handlePostRepository,
   handlePostRepositoryAudit,
+  handlePostRepositoryComponent,
+  handlePostRepositoryDependency,
   handlePostRepositoryFork,
   handlePostRepositoryStar,
+  handlePutRepositoryComponent,
   handlePutRepositoryDependencies,
+  handlePutRepositoryDependency,
   type RepositoryRouteOptions,
 } from "./repositories";
 import {
@@ -77,6 +83,22 @@ const coreRoutes = {
   repositoryDependencies: {
     allowedMethods: ["GET", "PUT"],
     path: "/api/repos/:owner/:repo/dependencies",
+  },
+  repositoryDependencyComponents: {
+    allowedMethods: ["POST"],
+    path: "/api/repos/:owner/:repo/dependencies/components",
+  },
+  repositoryDependencyComponent: {
+    allowedMethods: ["PUT", "DELETE"],
+    path: "/api/repos/:owner/:repo/dependencies/components/:componentId",
+  },
+  repositoryComponentDependencies: {
+    allowedMethods: ["POST"],
+    path: "/api/repos/:owner/:repo/dependencies/components/:componentId/dependencies",
+  },
+  repositoryComponentDependency: {
+    allowedMethods: ["PUT", "DELETE"],
+    path: "/api/repos/:owner/:repo/dependencies/components/:componentId/dependencies/:dependencyId",
   },
   repositoryBom: {
     allowedMethods: ["GET"],
@@ -304,6 +326,229 @@ export function createWorkerApiApp(options: WorkerApiOptions = {}): Hono<WorkerA
   });
   app.all(coreRoutes.repositoryDependencies.path, () =>
     methodNotAllowed(coreRoutes.repositoryDependencies.allowedMethods),
+  );
+
+  app.post(coreRoutes.repositoryDependencyComponents.path, async (context) => {
+    const params = getRepositoryParams(
+      context.req.param("owner"),
+      context.req.param("repo"),
+      context.req.raw,
+    );
+    if (!params.ok) {
+      return params.response;
+    }
+
+    const profileResult = await requireAuthenticatedProfile(
+      context.req.raw,
+      context.env,
+      "POST",
+      options,
+    );
+    if (!profileResult.ok) {
+      return profileResult.response;
+    }
+
+    return handlePostRepositoryComponent(
+      context.req.raw,
+      params.ownerHandle,
+      params.slug,
+      profileResult.profile,
+      context.env,
+      options,
+    );
+  });
+  app.all(coreRoutes.repositoryDependencyComponents.path, () =>
+    methodNotAllowed(coreRoutes.repositoryDependencyComponents.allowedMethods),
+  );
+
+  app.put(coreRoutes.repositoryDependencyComponent.path, async (context) => {
+    const params = getRepositoryParams(
+      context.req.param("owner"),
+      context.req.param("repo"),
+      context.req.raw,
+    );
+    const componentId = getRequiredPathParam(context.req.param("componentId"), context.req.raw);
+    if (!params.ok) {
+      return params.response;
+    }
+    if (!componentId.ok) {
+      return componentId.response;
+    }
+
+    const profileResult = await requireAuthenticatedProfile(
+      context.req.raw,
+      context.env,
+      "PUT",
+      options,
+    );
+    if (!profileResult.ok) {
+      return profileResult.response;
+    }
+
+    return handlePutRepositoryComponent(
+      context.req.raw,
+      params.ownerHandle,
+      params.slug,
+      componentId.value,
+      profileResult.profile,
+      context.env,
+      options,
+    );
+  });
+  app.delete(coreRoutes.repositoryDependencyComponent.path, async (context) => {
+    const params = getRepositoryParams(
+      context.req.param("owner"),
+      context.req.param("repo"),
+      context.req.raw,
+    );
+    const componentId = getRequiredPathParam(context.req.param("componentId"), context.req.raw);
+    if (!params.ok) {
+      return params.response;
+    }
+    if (!componentId.ok) {
+      return componentId.response;
+    }
+
+    const profileResult = await requireAuthenticatedProfile(
+      context.req.raw,
+      context.env,
+      "DELETE",
+      options,
+    );
+    if (!profileResult.ok) {
+      return profileResult.response;
+    }
+
+    return handleDeleteRepositoryComponent(
+      params.ownerHandle,
+      params.slug,
+      componentId.value,
+      profileResult.profile,
+      context.env,
+      options,
+    );
+  });
+  app.all(coreRoutes.repositoryDependencyComponent.path, () =>
+    methodNotAllowed(coreRoutes.repositoryDependencyComponent.allowedMethods),
+  );
+
+  app.post(coreRoutes.repositoryComponentDependencies.path, async (context) => {
+    const params = getRepositoryParams(
+      context.req.param("owner"),
+      context.req.param("repo"),
+      context.req.raw,
+    );
+    const componentId = getRequiredPathParam(context.req.param("componentId"), context.req.raw);
+    if (!params.ok) {
+      return params.response;
+    }
+    if (!componentId.ok) {
+      return componentId.response;
+    }
+
+    const profileResult = await requireAuthenticatedProfile(
+      context.req.raw,
+      context.env,
+      "POST",
+      options,
+    );
+    if (!profileResult.ok) {
+      return profileResult.response;
+    }
+
+    return handlePostRepositoryDependency(
+      context.req.raw,
+      params.ownerHandle,
+      params.slug,
+      componentId.value,
+      profileResult.profile,
+      context.env,
+      options,
+    );
+  });
+  app.all(coreRoutes.repositoryComponentDependencies.path, () =>
+    methodNotAllowed(coreRoutes.repositoryComponentDependencies.allowedMethods),
+  );
+
+  app.put(coreRoutes.repositoryComponentDependency.path, async (context) => {
+    const params = getRepositoryParams(
+      context.req.param("owner"),
+      context.req.param("repo"),
+      context.req.raw,
+    );
+    const componentId = getRequiredPathParam(context.req.param("componentId"), context.req.raw);
+    const dependencyId = getRequiredPathParam(context.req.param("dependencyId"), context.req.raw);
+    if (!params.ok) {
+      return params.response;
+    }
+    if (!componentId.ok) {
+      return componentId.response;
+    }
+    if (!dependencyId.ok) {
+      return dependencyId.response;
+    }
+
+    const profileResult = await requireAuthenticatedProfile(
+      context.req.raw,
+      context.env,
+      "PUT",
+      options,
+    );
+    if (!profileResult.ok) {
+      return profileResult.response;
+    }
+
+    return handlePutRepositoryDependency(
+      context.req.raw,
+      params.ownerHandle,
+      params.slug,
+      componentId.value,
+      dependencyId.value,
+      profileResult.profile,
+      context.env,
+      options,
+    );
+  });
+  app.delete(coreRoutes.repositoryComponentDependency.path, async (context) => {
+    const params = getRepositoryParams(
+      context.req.param("owner"),
+      context.req.param("repo"),
+      context.req.raw,
+    );
+    const componentId = getRequiredPathParam(context.req.param("componentId"), context.req.raw);
+    const dependencyId = getRequiredPathParam(context.req.param("dependencyId"), context.req.raw);
+    if (!params.ok) {
+      return params.response;
+    }
+    if (!componentId.ok) {
+      return componentId.response;
+    }
+    if (!dependencyId.ok) {
+      return dependencyId.response;
+    }
+
+    const profileResult = await requireAuthenticatedProfile(
+      context.req.raw,
+      context.env,
+      "DELETE",
+      options,
+    );
+    if (!profileResult.ok) {
+      return profileResult.response;
+    }
+
+    return handleDeleteRepositoryDependency(
+      params.ownerHandle,
+      params.slug,
+      componentId.value,
+      dependencyId.value,
+      profileResult.profile,
+      context.env,
+      options,
+    );
+  });
+  app.all(coreRoutes.repositoryComponentDependency.path, () =>
+    methodNotAllowed(coreRoutes.repositoryComponentDependency.allowedMethods),
   );
 
   app.get(coreRoutes.repositoryBom.path, (context) => {

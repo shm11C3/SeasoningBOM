@@ -747,6 +747,12 @@ POST   /api/repos/:owner/:repo/fork
 GET    /api/repos/:owner/:repo/bom
 GET    /api/repos/:owner/:repo/dependencies
 PUT    /api/repos/:owner/:repo/dependencies
+POST   /api/repos/:owner/:repo/dependencies/components
+PUT    /api/repos/:owner/:repo/dependencies/components/:componentId
+DELETE /api/repos/:owner/:repo/dependencies/components/:componentId
+POST   /api/repos/:owner/:repo/dependencies/components/:componentId/dependencies
+PUT    /api/repos/:owner/:repo/dependencies/components/:componentId/dependencies/:dependencyId
+DELETE /api/repos/:owner/:repo/dependencies/components/:componentId/dependencies/:dependencyId
 GET    /api/repos/:owner/:repo/security
 ```
 
@@ -757,6 +763,8 @@ GET    /api/repos/:owner/:repo/security
 `POST /api/repos` と `POST /api/repos/:owner/:repo/fork` は、それぞれ `recipe_created` と `repository_forked` の Contribution event を Repository 書き込みと同じ D1 batch で記録する。`PATCH /api/repos/:owner/:repo` は name、slug、description、version、servings、README、license のいずれかが変わる場合だけ `recipe_updated` を同じ D1 batch で記録する。
 
 Private Repository に対する `recipe_created` / `recipe_updated` event は event visibility を `private` にする。
+
+`PUT /api/repos/:owner/:repo/dependencies` は component / transitive dependency manifest 全体の置き換えに使う。個別の component / transitive dependency endpoint は owner-only の full replacement API とし、`PATCH` 形式の部分更新は提供しない。個別更新・削除では URL path の `componentId` / `dependencyId` を正本とし、body に含まれる `id` より優先する。
 
 ### 16.3 Inventory
 
