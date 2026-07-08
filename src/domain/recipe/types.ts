@@ -33,6 +33,7 @@ export type DependencyType = "required" | "optional" | "dev" | "peer" | "transit
 export type IngredientDependencyType = "transitive" | "substitute" | "peer";
 
 export type IngredientDependency = {
+  id?: string;
   name: string;
   dependencyType: IngredientDependencyType;
   allergens: Allergen[];

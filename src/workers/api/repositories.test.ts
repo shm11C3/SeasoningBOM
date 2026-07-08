@@ -20,6 +20,8 @@ import type {
 import type { ClerkAuthenticationOptions } from "../auth/clerk";
 import {
   handleDeleteRepository,
+  handleDeleteRepositoryComponent,
+  handleDeleteRepositoryDependency,
   handleDeleteRepositoryStar,
   handleGetRepository,
   handleGetRepositoryBom,
@@ -29,9 +31,13 @@ import {
   handlePatchRepository,
   handlePostRepository,
   handlePostRepositoryAudit,
+  handlePostRepositoryComponent,
+  handlePostRepositoryDependency,
   handlePostRepositoryFork,
   handlePostRepositoryStar,
+  handlePutRepositoryComponent,
   handlePutRepositoryDependencies,
+  handlePutRepositoryDependency,
 } from "./repositories";
 import type { D1Database, WorkerEnv } from "./types";
 
@@ -348,11 +354,9 @@ describe("repository API handlers", () => {
       {
         ...validSessionAuth,
         recipeComponents: {
+          ...createRecipeComponentRepository([]),
           async listByRepositoryId() {
             throw new Error("D1 unavailable");
-          },
-          async replaceByRepositoryId() {
-            return [];
           },
         },
         recipeRepositories: createRecipeRepository([privateRepository]),
@@ -490,11 +494,9 @@ describe("repository API handlers", () => {
       env,
       {
         recipeComponents: {
+          ...createRecipeComponentRepository([]),
           async listByRepositoryId() {
             throw new Error("D1 unavailable");
-          },
-          async replaceByRepositoryId() {
-            return [];
           },
         },
         recipeRepositories: createRecipeRepository([publicRepository]),
@@ -524,11 +526,9 @@ describe("repository API handlers", () => {
       env,
       {
         recipeComponents: {
+          ...createRecipeComponentRepository([]),
           async listByRepositoryId() {
             throw new Error("D1 unavailable");
-          },
-          async replaceByRepositoryId() {
-            return [];
           },
         },
         recipeRepositories: createRecipeRepository([publicRepository]),
@@ -831,6 +831,315 @@ describe("repository API handlers", () => {
     expect(response.status).toBe(404);
   });
 
+  it("creates a single repository component for the authenticated owner", async () => {
+    const recipeComponents = createRecipeComponentRepository([]);
+    const response = await handlePostRepositoryComponent(
+      new Request(
+        "https://example.test/api/repos/test-user/private-curry/dependencies/components",
+        {
+          body: JSON.stringify(
+            createDependencyComponentBody({
+              allergens: ["wheat", "wheat"],
+              alternatives: ["brown rice"],
+              id: "component_rice",
+              transitiveDependencies: [
+                {
+                  allergens: ["soy"],
+                  dependencyType: "peer",
+                  name: "furikake",
+                },
+              ],
+            }),
+          ),
+          method: "POST",
+        },
+      ),
+      "test-user",
+      "private-curry",
+      owner,
+      env,
+      {
+        recipeComponents,
+        recipeRepositories: createRecipeRepository([privateRepository]),
+      },
+    );
+
+    await expect(parseJson(response)).resolves.toEqual({
+      component: {
+        allergens: ["wheat"],
+        alternatives: ["brown rice"],
+        dependencyType: "required",
+        id: "component_rice",
+        ingredientName: "rice",
+        quantity: 1,
+        required: true,
+        transitiveDependencies: [
+          {
+            allergens: ["soy"],
+            dependencyType: "peer",
+            name: "furikake",
+          },
+        ],
+        unit: "go",
+      },
+      repository: expect.objectContaining({ id: "repo_private" }),
+    });
+    expect(response.status).toBe(201);
+    await expect(
+      recipeComponents.findByRepositoryIdAndComponentId("repo_private", "component_rice"),
+    ).resolves.toEqual(expect.objectContaining({ recipeId: "repo_private" }));
+  });
+
+  it("replaces a single repository component by path id", async () => {
+    const recipeComponents = createRecipeComponentRepository([recipeComponent]);
+    const response = await handlePutRepositoryComponent(
+      new Request(
+        "https://example.test/api/repos/test-user/private-curry/dependencies/components/component_roux",
+        {
+          body: JSON.stringify(
+            createDependencyComponentBody({
+              id: "ignored_body_id",
+              ingredientName: "updated roux",
+              quantity: 2,
+              transitiveDependencies: [],
+            }),
+          ),
+          method: "PUT",
+        },
+      ),
+      "test-user",
+      "private-curry",
+      "component_roux",
+      owner,
+      env,
+      {
+        recipeComponents,
+        recipeRepositories: createRecipeRepository([privateRepository]),
+      },
+    );
+
+    await expect(parseJson(response)).resolves.toEqual({
+      component: expect.objectContaining({
+        id: "component_roux",
+        ingredientName: "updated roux",
+        quantity: 2,
+        transitiveDependencies: [],
+      }),
+      repository: expect.objectContaining({ id: "repo_private" }),
+    });
+    expect(response.status).toBe(200);
+  });
+
+  it("deletes a single repository component by path id", async () => {
+    const recipeComponents = createRecipeComponentRepository([recipeComponent]);
+    const response = await handleDeleteRepositoryComponent(
+      "test-user",
+      "private-curry",
+      "component_roux",
+      owner,
+      env,
+      {
+        recipeComponents,
+        recipeRepositories: createRecipeRepository([privateRepository]),
+      },
+    );
+
+    expect(response.status).toBe(204);
+    await expect(
+      recipeComponents.findByRepositoryIdAndComponentId("repo_private", "component_roux"),
+    ).resolves.toBeNull();
+  });
+
+  it("creates a single transitive dependency with a generated id", async () => {
+    const recipeComponents = createRecipeComponentRepository([recipeComponent]);
+    const response = await handlePostRepositoryDependency(
+      new Request(
+        "https://example.test/api/repos/test-user/private-curry/dependencies/components/component_roux/dependencies",
+        {
+          body: JSON.stringify({
+            allergens: ["soy"],
+            dependencyType: "transitive",
+            name: "soy lecithin",
+            notes: "Check the label.",
+          }),
+          method: "POST",
+        },
+      ),
+      "test-user",
+      "private-curry",
+      "component_roux",
+      owner,
+      env,
+      {
+        createIngredientDependencyId: () => "dependency_soy",
+        recipeComponents,
+        recipeRepositories: createRecipeRepository([privateRepository]),
+      },
+    );
+
+    await expect(parseJson(response)).resolves.toEqual({
+      dependency: {
+        allergens: ["soy"],
+        dependencyType: "transitive",
+        id: "dependency_soy",
+        name: "soy lecithin",
+        notes: "Check the label.",
+      },
+      repository: expect.objectContaining({ id: "repo_private" }),
+    });
+    expect(response.status).toBe(201);
+  });
+
+  it("replaces and deletes a single transitive dependency by path id", async () => {
+    const recipeComponents = createRecipeComponentRepository([
+      {
+        ...recipeComponent,
+        transitiveDependencies: [
+          {
+            allergens: ["milk"],
+            dependencyType: "transitive",
+            id: "dependency_milk",
+            name: "milk powder",
+          },
+        ],
+      },
+    ]);
+    const updateResponse = await handlePutRepositoryDependency(
+      new Request(
+        "https://example.test/api/repos/test-user/private-curry/dependencies/components/component_roux/dependencies/dependency_milk",
+        {
+          body: JSON.stringify({
+            allergens: [],
+            dependencyType: "substitute",
+            id: "ignored_body_id",
+            name: "soy milk powder",
+          }),
+          method: "PUT",
+        },
+      ),
+      "test-user",
+      "private-curry",
+      "component_roux",
+      "dependency_milk",
+      owner,
+      env,
+      {
+        recipeComponents,
+        recipeRepositories: createRecipeRepository([privateRepository]),
+      },
+    );
+    const deleteResponse = await handleDeleteRepositoryDependency(
+      "test-user",
+      "private-curry",
+      "component_roux",
+      "dependency_milk",
+      owner,
+      env,
+      {
+        recipeComponents,
+        recipeRepositories: createRecipeRepository([privateRepository]),
+      },
+    );
+
+    await expect(parseJson(updateResponse)).resolves.toEqual({
+      dependency: {
+        allergens: [],
+        dependencyType: "substitute",
+        id: "dependency_milk",
+        name: "soy milk powder",
+      },
+      repository: expect.objectContaining({ id: "repo_private" }),
+    });
+    expect(updateResponse.status).toBe(200);
+    expect(deleteResponse.status).toBe(204);
+    await expect(
+      recipeComponents.findByRepositoryIdAndComponentId("repo_private", "component_roux"),
+    ).resolves.toEqual(expect.objectContaining({ transitiveDependencies: [] }));
+  });
+
+  it("returns not found when granular dependency targets are missing or not owned", async () => {
+    const missingComponentResponse = await handlePutRepositoryComponent(
+      new Request(
+        "https://example.test/api/repos/test-user/private-curry/dependencies/components/missing",
+        {
+          body: JSON.stringify(createDependencyComponentBody()),
+          method: "PUT",
+        },
+      ),
+      "test-user",
+      "private-curry",
+      "missing",
+      owner,
+      env,
+      {
+        recipeComponents: createRecipeComponentRepository([recipeComponent]),
+        recipeRepositories: createRecipeRepository([privateRepository]),
+      },
+    );
+    const nonOwnerResponse = await handlePostRepositoryDependency(
+      new Request(
+        "https://example.test/api/repos/test-user/private-curry/dependencies/components/component_roux/dependencies",
+        {
+          body: JSON.stringify({ dependencyType: "transitive", name: "soy" }),
+          method: "POST",
+        },
+      ),
+      "test-user",
+      "private-curry",
+      "component_roux",
+      { ...owner, id: "profile_other" },
+      env,
+      {
+        recipeComponents: createRecipeComponentRepository([recipeComponent]),
+        recipeRepositories: createRecipeRepository([privateRepository]),
+      },
+    );
+
+    await expect(parseJson(missingComponentResponse)).resolves.toEqual({
+      error: {
+        code: "not_found",
+        message: "Repository not found.",
+      },
+    });
+    await expect(parseJson(nonOwnerResponse)).resolves.toEqual({
+      error: {
+        code: "not_found",
+        message: "Repository not found.",
+      },
+    });
+    expect(missingComponentResponse.status).toBe(404);
+    expect(nonOwnerResponse.status).toBe(404);
+  });
+
+  it("rejects invalid granular dependency input", async () => {
+    const response = await handlePostRepositoryDependency(
+      new Request(
+        "https://example.test/api/repos/test-user/private-curry/dependencies/components/component_roux/dependencies",
+        {
+          body: JSON.stringify({ dependencyType: "dev", name: "" }),
+          method: "POST",
+        },
+      ),
+      "test-user",
+      "private-curry",
+      "component_roux",
+      owner,
+      env,
+      {
+        recipeComponents: createRecipeComponentRepository([recipeComponent]),
+        recipeRepositories: createRecipeRepository([privateRepository]),
+      },
+    );
+
+    await expect(parseJson(response)).resolves.toEqual({
+      error: {
+        code: "validation_failed",
+        message: "Name must be 1-120 characters.",
+      },
+    });
+    expect(response.status).toBe(400);
+  });
+
   it.each([
     {
       body: null,
@@ -1014,6 +1323,7 @@ describe("repository API handlers", () => {
       env,
       {
         recipeComponents: {
+          ...createRecipeComponentRepository([]),
           async listByRepositoryId() {
             return [];
           },
@@ -2093,11 +2403,66 @@ function createRecipeRepository(
 function createRecipeComponentRepository(
   initialComponents: Awaited<ReturnType<RecipeComponentWriteRepository["listByRepositoryId"]>>,
 ): RecipeComponentWriteRepository {
-  const components = [...initialComponents];
+  const components = initialComponents.map(cloneRecipeComponent);
 
   return {
+    async createComponent(repositoryId, component) {
+      const savedComponent = cloneRecipeComponent({ ...component, recipeId: repositoryId });
+      components.push(savedComponent);
+      return cloneRecipeComponent(savedComponent);
+    },
+    async createDependency(repositoryId, componentId, dependency) {
+      const component = components.find(
+        (item) => item.recipeId === repositoryId && item.id === componentId,
+      );
+      if (!component) {
+        return null;
+      }
+
+      const savedDependency = {
+        ...dependency,
+        allergens: [...dependency.allergens],
+        id: dependency.id ?? `${componentId}:dependency:${component.transitiveDependencies.length}`,
+      };
+      component.transitiveDependencies.push(savedDependency);
+      return { ...savedDependency, allergens: [...savedDependency.allergens] };
+    },
+    async deleteComponent(repositoryId, componentId) {
+      const index = components.findIndex(
+        (component) => component.recipeId === repositoryId && component.id === componentId,
+      );
+      if (index < 0) {
+        return false;
+      }
+      components.splice(index, 1);
+      return true;
+    },
+    async deleteDependency(repositoryId, componentId, dependencyId) {
+      const component = components.find(
+        (item) => item.recipeId === repositoryId && item.id === componentId,
+      );
+      if (!component) {
+        return false;
+      }
+      const index = component.transitiveDependencies.findIndex(
+        (dependency) => dependency.id === dependencyId,
+      );
+      if (index < 0) {
+        return false;
+      }
+      component.transitiveDependencies.splice(index, 1);
+      return true;
+    },
+    async findByRepositoryIdAndComponentId(repositoryId, componentId) {
+      const component =
+        components.find((item) => item.recipeId === repositoryId && item.id === componentId) ??
+        null;
+      return component ? cloneRecipeComponent(component) : null;
+    },
     async listByRepositoryId(repositoryId) {
-      return components.filter((component) => component.recipeId === repositoryId);
+      return components
+        .filter((component) => component.recipeId === repositoryId)
+        .map(cloneRecipeComponent);
     },
     async replaceByRepositoryId(repositoryId, nextComponents) {
       for (let index = components.length - 1; index >= 0; index -= 1) {
@@ -2106,13 +2471,52 @@ function createRecipeComponentRepository(
         }
       }
 
-      const savedComponents = nextComponents.map((component) => ({
-        ...component,
-        recipeId: repositoryId,
-      }));
+      const savedComponents = nextComponents.map((component) =>
+        cloneRecipeComponent({ ...component, recipeId: repositoryId }),
+      );
       components.push(...savedComponents);
-      return savedComponents;
+      return savedComponents.map(cloneRecipeComponent);
     },
+    async updateComponent(repositoryId, component) {
+      const index = components.findIndex(
+        (item) => item.recipeId === repositoryId && item.id === component.id,
+      );
+      if (index < 0) {
+        return null;
+      }
+      const savedComponent = cloneRecipeComponent({ ...component, recipeId: repositoryId });
+      components[index] = savedComponent;
+      return cloneRecipeComponent(savedComponent);
+    },
+    async updateDependency(repositoryId, componentId, dependency) {
+      const component = components.find(
+        (item) => item.recipeId === repositoryId && item.id === componentId,
+      );
+      if (!component || !dependency.id) {
+        return null;
+      }
+      const index = component.transitiveDependencies.findIndex((item) => item.id === dependency.id);
+      if (index < 0) {
+        return null;
+      }
+      const savedDependency = { ...dependency, allergens: [...dependency.allergens] };
+      component.transitiveDependencies[index] = savedDependency;
+      return { ...savedDependency, allergens: [...savedDependency.allergens] };
+    },
+  };
+}
+
+function cloneRecipeComponent(
+  component: Awaited<ReturnType<RecipeComponentWriteRepository["listByRepositoryId"]>>[number],
+): Awaited<ReturnType<RecipeComponentWriteRepository["listByRepositoryId"]>>[number] {
+  return {
+    ...component,
+    allergens: [...component.allergens],
+    alternatives: [...component.alternatives],
+    transitiveDependencies: component.transitiveDependencies.map((dependency) => ({
+      ...dependency,
+      allergens: [...dependency.allergens],
+    })),
   };
 }
 

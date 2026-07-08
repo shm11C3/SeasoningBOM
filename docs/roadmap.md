@@ -112,6 +112,7 @@ Current implementation checkpoint:
 - Public repositories can be listed and fetched without login. Unlisted repositories can be fetched by exact URL but are excluded from listings. Private repository metadata is owner-only.
 - `GET /api/repos/:owner/:repo/dependencies` and `PUT /api/repos/:owner/:repo/dependencies` are wired to D1 `recipe_components` and `ingredient_dependencies` through `D1RecipeComponentRepository`.
 - Repository dependency reads use the same public / unlisted / private read authorization as repository metadata. Repository dependency replacement is owner-only and requires a bearer token.
+- Individual component and transitive dependency mutations are exposed through granular owner-only endpoints under `/api/repos/:owner/:repo/dependencies/components`.
 - `GET /api/repos/:owner/:repo/bom` generates a SeasoningBOM JSON snapshot on demand from repository content and public Recipe Alerts only.
 - `GET /api/repos/:owner/:repo/security` returns public Recipe Alerts only. `POST /api/repos/:owner/:repo/audit` returns the authenticated viewer's private Inventory Audit using MVP default audit settings.
 - `POST /api/repos/:owner/:repo/star` and `DELETE /api/repos/:owner/:repo/star` are wired to D1 `repository_stars` through `D1RepositoryStarRepository`.
@@ -123,7 +124,7 @@ Current implementation checkpoint:
 - Cooking log creation can link explicit owned `usedInventoryItemIds` through `cooking_log_inventory_items` and records one private `eol_rescued` contribution when any linked item is `deprecated` at `cooked_at`.
 - `GET /api/users/:username/profile`, `GET /api/users/:username/contributions`, and `GET /api/users/:username/contributions/:date` are wired to D1 `user_profiles` and `contribution_events` through `D1ContributionRepository`.
 - Profile contribution reads expose annual graph counts for `summary_only` users, hide `private` contribution graphs from third parties, and expose day-level event details only to the owner or for `public` profiles.
-- Protected endpoints reject missing or invalid sessions before reaching protected handlers. Contribution CRUD endpoints and granular component/dependency CRUD endpoints are still not implemented.
+- Protected endpoints reject missing or invalid sessions before reaching protected handlers. Contribution CRUD endpoints are still not implemented.
 
 Exit criteria:
 

@@ -46,6 +46,7 @@ import type { WorkerEnv } from "./types";
 export type RepositoryRouteOptions = ClerkAuthenticationOptions &
   ProfileRouteOptions & {
     createContributionEventId?: () => string;
+    createIngredientDependencyId?: () => string;
     createRecipeComponentId?: () => string;
     createRepositoryId?: () => string;
     inventoryItems?: InventoryItemRepository;
@@ -66,6 +67,16 @@ type RepositoryListResponseBody = {
 type RepositoryDependenciesResponseBody = {
   repository: SerializedRepository;
   components: SerializedRecipeComponent[];
+};
+
+type RepositoryComponentResponseBody = {
+  component: SerializedRecipeComponent;
+  repository: SerializedRepository;
+};
+
+type RepositoryDependencyResponseBody = {
+  dependency: SerializedIngredientDependency;
+  repository: SerializedRepository;
 };
 
 type RepositorySecurityResponseBody = {
@@ -116,6 +127,7 @@ type SerializedRecipeComponent = {
 };
 
 type SerializedIngredientDependency = {
+  id?: string;
   name: string;
   dependencyType: IngredientDependencyType;
   allergens: Allergen[];
@@ -410,6 +422,299 @@ export async function handlePutRepositoryDependencies(
     } satisfies RepositoryDependenciesResponseBody);
   } catch {
     return serverError("Failed to update dependencies.");
+  }
+}
+
+export async function handlePostRepositoryComponent(
+  request: Request,
+  ownerHandle: string,
+  slug: string,
+  owner: UserProfile,
+  env: WorkerEnv,
+  options: RepositoryRouteOptions = {},
+): Promise<Response> {
+  const repositories = getRecipeRepository(env, options);
+  const components = getRecipeComponentRepository(env, options);
+  const repositoryResult = await findOwnedRepository(
+    repositories,
+    ownerHandle,
+    slug,
+    owner,
+    "Failed to create component.",
+  );
+  if (!repositoryResult.ok) {
+    return repositoryResult.response;
+  }
+
+  const body = await readRepositoryDependenciesBody(request);
+  if (!body.ok) {
+    return badRequest(body.message);
+  }
+
+  const component = normalizeRecipeComponentBody(
+    body.value,
+    repositoryResult.repository.id,
+    options,
+  );
+  if (!component.ok) {
+    return badRequest(component.message);
+  }
+  if (componentRowCount(component.value) > maxDependencyReplacementRows) {
+    return badRequest(
+      "Components and transitive dependencies must contain 38 total rows or fewer.",
+    );
+  }
+
+  const now = (options.now?.() ?? new Date()).toISOString();
+  try {
+    const created = await components.createComponent(
+      repositoryResult.repository.id,
+      component.value,
+      now,
+    );
+
+    return jsonResponse(
+      {
+        component: serializeRecipeComponent(created),
+        repository: serializeRepository(repositoryResult.repository),
+      } satisfies RepositoryComponentResponseBody,
+      { status: 201 },
+    );
+  } catch {
+    return serverError("Failed to create component.");
+  }
+}
+
+export async function handlePutRepositoryComponent(
+  request: Request,
+  ownerHandle: string,
+  slug: string,
+  componentId: string,
+  owner: UserProfile,
+  env: WorkerEnv,
+  options: RepositoryRouteOptions = {},
+): Promise<Response> {
+  const repositories = getRecipeRepository(env, options);
+  const components = getRecipeComponentRepository(env, options);
+  const repositoryResult = await findOwnedRepository(
+    repositories,
+    ownerHandle,
+    slug,
+    owner,
+    "Failed to update component.",
+  );
+  if (!repositoryResult.ok) {
+    return repositoryResult.response;
+  }
+
+  const body = await readRepositoryDependenciesBody(request);
+  if (!body.ok) {
+    return badRequest(body.message);
+  }
+
+  const component = normalizeRecipeComponentBody(
+    { ...body.value, id: componentId },
+    repositoryResult.repository.id,
+    options,
+  );
+  if (!component.ok) {
+    return badRequest(component.message);
+  }
+  if (componentRowCount(component.value) > maxDependencyReplacementRows) {
+    return badRequest(
+      "Components and transitive dependencies must contain 38 total rows or fewer.",
+    );
+  }
+
+  const now = (options.now?.() ?? new Date()).toISOString();
+  try {
+    const updated = await components.updateComponent(
+      repositoryResult.repository.id,
+      component.value,
+      now,
+    );
+    if (!updated) {
+      return repositoryNotFound();
+    }
+
+    return jsonResponse({
+      component: serializeRecipeComponent(updated),
+      repository: serializeRepository(repositoryResult.repository),
+    } satisfies RepositoryComponentResponseBody);
+  } catch {
+    return serverError("Failed to update component.");
+  }
+}
+
+export async function handleDeleteRepositoryComponent(
+  ownerHandle: string,
+  slug: string,
+  componentId: string,
+  owner: UserProfile,
+  env: WorkerEnv,
+  options: RepositoryRouteOptions = {},
+): Promise<Response> {
+  const repositories = getRecipeRepository(env, options);
+  const components = getRecipeComponentRepository(env, options);
+  const repositoryResult = await findOwnedRepository(
+    repositories,
+    ownerHandle,
+    slug,
+    owner,
+    "Failed to delete component.",
+  );
+  if (!repositoryResult.ok) {
+    return repositoryResult.response;
+  }
+
+  try {
+    const deleted = await components.deleteComponent(repositoryResult.repository.id, componentId);
+    return deleted ? new Response(null, { status: 204 }) : repositoryNotFound();
+  } catch {
+    return serverError("Failed to delete component.");
+  }
+}
+
+export async function handlePostRepositoryDependency(
+  request: Request,
+  ownerHandle: string,
+  slug: string,
+  componentId: string,
+  owner: UserProfile,
+  env: WorkerEnv,
+  options: RepositoryRouteOptions = {},
+): Promise<Response> {
+  const repositories = getRecipeRepository(env, options);
+  const components = getRecipeComponentRepository(env, options);
+  const repositoryResult = await findOwnedRepository(
+    repositories,
+    ownerHandle,
+    slug,
+    owner,
+    "Failed to create dependency.",
+  );
+  if (!repositoryResult.ok) {
+    return repositoryResult.response;
+  }
+
+  const body = await readRepositoryDependenciesBody(request);
+  if (!body.ok) {
+    return badRequest(body.message);
+  }
+
+  const dependency = normalizeIngredientDependencyBody(
+    body.value,
+    options.createIngredientDependencyId ?? (() => crypto.randomUUID()),
+  );
+  if (!dependency.ok) {
+    return badRequest(dependency.message);
+  }
+
+  try {
+    const created = await components.createDependency(
+      repositoryResult.repository.id,
+      componentId,
+      dependency.value,
+    );
+    if (!created) {
+      return repositoryNotFound();
+    }
+
+    return jsonResponse(
+      {
+        dependency: serializeIngredientDependency(created),
+        repository: serializeRepository(repositoryResult.repository),
+      } satisfies RepositoryDependencyResponseBody,
+      { status: 201 },
+    );
+  } catch {
+    return serverError("Failed to create dependency.");
+  }
+}
+
+export async function handlePutRepositoryDependency(
+  request: Request,
+  ownerHandle: string,
+  slug: string,
+  componentId: string,
+  dependencyId: string,
+  owner: UserProfile,
+  env: WorkerEnv,
+  options: RepositoryRouteOptions = {},
+): Promise<Response> {
+  const repositories = getRecipeRepository(env, options);
+  const components = getRecipeComponentRepository(env, options);
+  const repositoryResult = await findOwnedRepository(
+    repositories,
+    ownerHandle,
+    slug,
+    owner,
+    "Failed to update dependency.",
+  );
+  if (!repositoryResult.ok) {
+    return repositoryResult.response;
+  }
+
+  const body = await readRepositoryDependenciesBody(request);
+  if (!body.ok) {
+    return badRequest(body.message);
+  }
+
+  const dependency = normalizeIngredientDependencyBody({ ...body.value, id: dependencyId });
+  if (!dependency.ok) {
+    return badRequest(dependency.message);
+  }
+
+  try {
+    const updated = await components.updateDependency(
+      repositoryResult.repository.id,
+      componentId,
+      dependency.value,
+    );
+    if (!updated) {
+      return repositoryNotFound();
+    }
+
+    return jsonResponse({
+      dependency: serializeIngredientDependency(updated),
+      repository: serializeRepository(repositoryResult.repository),
+    } satisfies RepositoryDependencyResponseBody);
+  } catch {
+    return serverError("Failed to update dependency.");
+  }
+}
+
+export async function handleDeleteRepositoryDependency(
+  ownerHandle: string,
+  slug: string,
+  componentId: string,
+  dependencyId: string,
+  owner: UserProfile,
+  env: WorkerEnv,
+  options: RepositoryRouteOptions = {},
+): Promise<Response> {
+  const repositories = getRecipeRepository(env, options);
+  const components = getRecipeComponentRepository(env, options);
+  const repositoryResult = await findOwnedRepository(
+    repositories,
+    ownerHandle,
+    slug,
+    owner,
+    "Failed to delete dependency.",
+  );
+  if (!repositoryResult.ok) {
+    return repositoryResult.response;
+  }
+
+  try {
+    const deleted = await components.deleteDependency(
+      repositoryResult.repository.id,
+      componentId,
+      dependencyId,
+    );
+    return deleted ? new Response(null, { status: 204 }) : repositoryNotFound();
+  } catch {
+    return serverError("Failed to delete dependency.");
   }
 }
 
@@ -1150,6 +1455,10 @@ function normalizeRecipeComponentBody(
   };
 }
 
+function componentRowCount(component: RecipeComponent): number {
+  return 1 + component.transitiveDependencies.length;
+}
+
 function normalizeIngredientDependencies(
   value: unknown,
 ): { ok: true; value: IngredientDependency[] } | { message: string; ok: false } {
@@ -1167,49 +1476,70 @@ function normalizeIngredientDependencies(
 
   const dependencies: IngredientDependency[] = [];
   for (const [index, item] of value.entries()) {
-    if (!item || typeof item !== "object" || Array.isArray(item)) {
-      return { message: `Dependency ${index + 1}: Dependency must be a JSON object.`, ok: false };
+    const dependency = normalizeIngredientDependencyBody(item);
+    if (!dependency.ok) {
+      return { message: `Dependency ${index + 1}: ${dependency.message}`, ok: false };
     }
 
-    const body = item as Record<string, unknown>;
-    const name = normalizeRequiredText(body.name, 120);
-    if (!name) {
-      return { message: `Dependency ${index + 1}: Name must be 1-120 characters.`, ok: false };
-    }
-
-    const dependencyType = normalizeIngredientDependencyType(body.dependencyType);
-    if (!dependencyType) {
-      return {
-        message: `Dependency ${index + 1}: Dependency type must be transitive, substitute, or peer.`,
-        ok: false,
-      };
-    }
-
-    const allergens = normalizeAllergenArray(body.allergens);
-    if (!allergens) {
-      return {
-        message: `Dependency ${index + 1}: Allergens must be known allergen strings.`,
-        ok: false,
-      };
-    }
-
-    const notes = normalizeOptionalText(body.notes, 1000);
-    if (notes === false) {
-      return {
-        message: `Dependency ${index + 1}: Notes must be 1000 characters or fewer.`,
-        ok: false,
-      };
-    }
-
-    dependencies.push({
-      name,
-      dependencyType,
-      allergens,
-      notes: notes || undefined,
-    });
+    dependencies.push(dependency.value);
   }
 
   return { ok: true, value: dependencies };
+}
+
+function normalizeIngredientDependencyBody(
+  value: unknown,
+  fallbackId?: () => string,
+): { ok: true; value: IngredientDependency } | { message: string; ok: false } {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return { message: "Dependency must be a JSON object.", ok: false };
+  }
+
+  const body = value as Record<string, unknown>;
+  let id: string | undefined;
+  if (Object.hasOwn(body, "id")) {
+    const normalizedId = normalizeRequiredText(body.id, 120);
+    if (!normalizedId) {
+      return { message: "Id must be a non-empty string up to 120 characters.", ok: false };
+    }
+    id = normalizedId;
+  } else if (fallbackId) {
+    id = fallbackId();
+  }
+
+  const name = normalizeRequiredText(body.name, 120);
+  if (!name) {
+    return { message: "Name must be 1-120 characters.", ok: false };
+  }
+
+  const dependencyType = normalizeIngredientDependencyType(body.dependencyType);
+  if (!dependencyType) {
+    return {
+      message: "Dependency type must be transitive, substitute, or peer.",
+      ok: false,
+    };
+  }
+
+  const allergens = normalizeAllergenArray(body.allergens);
+  if (!allergens) {
+    return { message: "Allergens must be known allergen strings.", ok: false };
+  }
+
+  const notes = normalizeOptionalText(body.notes, 1000);
+  if (notes === false) {
+    return { message: "Notes must be 1000 characters or fewer.", ok: false };
+  }
+
+  return {
+    ok: true,
+    value: {
+      allergens,
+      dependencyType,
+      id,
+      name,
+      notes: notes || undefined,
+    },
+  };
 }
 
 async function findOwnedRepository(
@@ -1572,6 +1902,7 @@ function serializeIngredientDependency(
   return {
     allergens: dependency.allergens,
     dependencyType: dependency.dependencyType,
+    id: dependency.id,
     name: dependency.name,
     notes: dependency.notes,
   };

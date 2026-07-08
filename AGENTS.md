@@ -106,6 +106,8 @@ Forbidden:
 - storing generated SeasoningBOM snapshots in DB
 - including Inventory Audit details in public SeasoningBOM output
 
+Granular component / dependency mutation endpoints are full-resource `PUT` replacements, not partial `PATCH` merges. Treat URL path IDs as authoritative.
+
 ### Safety beats jokes
 
 Never make UX copy or logic encourage unsafe food use.
