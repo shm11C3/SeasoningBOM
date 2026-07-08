@@ -45,6 +45,7 @@ import type { WorkerEnv } from "./types";
 
 export type RepositoryRouteOptions = ClerkAuthenticationOptions &
   ProfileRouteOptions & {
+    createContributionEventId?: () => string;
     createRecipeComponentId?: () => string;
     createRepositoryId?: () => string;
     inventoryItems?: InventoryItemRepository;
@@ -531,9 +532,26 @@ export async function handlePostRepositoryFork(
 
   const now = (options.now?.() ?? new Date()).toISOString();
   const id = options.createRepositoryId?.() ?? crypto.randomUUID();
+  const contributionEventId = options.createContributionEventId?.() ?? crypto.randomUUID();
 
   try {
-    const repository = await repositories.create({
+    const { repository } = await repositories.createWithContribution({
+      contribution: {
+        eventType: "repository_forked",
+        id: contributionEventId,
+        metadata: buildRepositoryContributionMetadata({
+          name: sourceRepository.name,
+          ownerHandle: owner.username,
+          slug: sourceRepository.slug,
+          sourceRepositoryId: sourceRepository.id,
+          sourceRepositoryOwnerHandle: sourceRepository.ownerHandle,
+          sourceRepositorySlug: sourceRepository.slug,
+          version: sourceRepository.version,
+        }),
+        occurredAt: now,
+        occurredOn: contributionDateFromIso(now),
+        visibility: owner.contributionVisibility,
+      },
       description: sourceRepository.description,
       id,
       license: sourceRepository.license,
@@ -663,10 +681,24 @@ export async function handlePostRepository(
 
   const now = (options.now?.() ?? new Date()).toISOString();
   const id = options.createRepositoryId?.() ?? crypto.randomUUID();
+  const contributionEventId = options.createContributionEventId?.() ?? crypto.randomUUID();
 
   try {
-    const repository = await repositories.create({
+    const { repository } = await repositories.createWithContribution({
       ...input.value,
+      contribution: {
+        eventType: "recipe_created",
+        id: contributionEventId,
+        metadata: buildRepositoryContributionMetadata({
+          name: input.value.name,
+          ownerHandle: owner.username,
+          slug: input.value.slug,
+          version: input.value.version,
+        }),
+        occurredAt: now,
+        occurredOn: contributionDateFromIso(now),
+        visibility: owner.contributionVisibility,
+      },
       id,
       ownerHandle: owner.username,
       ownerUserId: owner.id,
@@ -741,9 +773,14 @@ export async function handlePatchRepository(
   }
 
   const now = (options.now?.() ?? new Date()).toISOString();
+  const contributionEventId = options.createContributionEventId?.() ?? crypto.randomUUID();
+  const shouldRecordContribution = shouldRecordRecipeUpdateContribution(
+    currentResult.repository,
+    input.value,
+  );
 
   try {
-    const repository = await repositories.update({
+    const updateInput = {
       ...input.value,
       id: currentResult.repository.id,
       ownerHandle: currentResult.repository.ownerHandle,
@@ -751,7 +788,31 @@ export async function handlePatchRepository(
       sourceRepositoryId: currentResult.repository.sourceRepositoryId,
       createdAt: currentResult.repository.createdAt,
       now,
-    });
+    };
+    const repository = shouldRecordContribution
+      ? (
+          await repositories.updateWithContribution({
+            ...updateInput,
+            contribution: {
+              eventType: "recipe_updated",
+              id: contributionEventId,
+              metadata: buildRepositoryContributionMetadata({
+                name: input.value.name,
+                ownerHandle: currentResult.repository.ownerHandle,
+                previousSlug:
+                  input.value.slug === currentResult.repository.slug
+                    ? undefined
+                    : currentResult.repository.slug,
+                slug: input.value.slug,
+                version: input.value.version,
+              }),
+              occurredAt: now,
+              occurredOn: contributionDateFromIso(now),
+              visibility: owner.contributionVisibility,
+            },
+          })
+        ).repository
+      : await repositories.update(updateInput);
 
     return jsonResponse(serializeRepositoryResponse(repository));
   } catch {
@@ -1346,6 +1407,57 @@ function getRecipeRepository(
   options: RepositoryRouteOptions,
 ): RecipeRepositoryMetadataRepository {
   return options.recipeRepositories ?? new D1RecipeRepository(env.DB);
+}
+
+function buildRepositoryContributionMetadata(input: {
+  name: string;
+  ownerHandle: string;
+  previousSlug?: string;
+  slug: string;
+  sourceRepositoryId?: string;
+  sourceRepositoryOwnerHandle?: string;
+  sourceRepositorySlug?: string;
+  version: string;
+}): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries({
+      previousRepositorySlug: input.previousSlug,
+      repositoryName: input.name,
+      repositoryOwnerHandle: input.ownerHandle,
+      repositorySlug: input.slug,
+      sourceRepositoryId: input.sourceRepositoryId,
+      sourceRepositoryOwnerHandle: input.sourceRepositoryOwnerHandle,
+      sourceRepositorySlug: input.sourceRepositorySlug,
+      version: input.version,
+    }).filter((entry): entry is [string, string] => typeof entry[1] === "string"),
+  );
+}
+
+function shouldRecordRecipeUpdateContribution(
+  current: CloudRecipeRepository,
+  next: {
+    name: string;
+    slug: string;
+    description?: string;
+    version: string;
+    servings: number;
+    readme?: string;
+    license?: string;
+  },
+): boolean {
+  return (
+    current.name !== next.name ||
+    current.slug !== next.slug ||
+    (current.description ?? undefined) !== (next.description ?? undefined) ||
+    current.version !== next.version ||
+    current.servings !== next.servings ||
+    (current.readme ?? undefined) !== (next.readme ?? undefined) ||
+    (current.license ?? undefined) !== (next.license ?? undefined)
+  );
+}
+
+function contributionDateFromIso(iso: string): string {
+  return iso.slice(0, 10);
 }
 
 function getRecipeComponentRepository(

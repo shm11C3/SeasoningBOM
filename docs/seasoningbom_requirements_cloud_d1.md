@@ -352,6 +352,8 @@ MVP では以下を対象にする。
 - eol_rescued
 - repository_forked
 
+Repository 作成、レシピ内容に影響する Repository metadata 更新、Fork は、それぞれ同じ D1 batch で `recipe_created`、`recipe_updated`、`repository_forked` を `contribution_events` に記録する。公開範囲だけの変更や同一内容の保存は Contribution として数えない。Cooking Log 作成は同じ D1 batch で `cooking_logged` を記録する。`eol_rescued` は Cooking Log と Inventory の照合結果から追加記録する。
+
 ### 12.3 Contribution として数えないイベント
 
 | イベント | 理由 |
@@ -732,6 +734,8 @@ GET    /api/repos/:owner/:repo/security
 `/bom` は Repository content と公開可能な Recipe Alert だけから SeasoningBOM JSON を都度生成し、Inventory Audit details を含めない。
 
 `/security` は Repository content 由来の Recipe Alert だけを返し、ログイン本人の Inventory Audit は返さない。
+
+`POST /api/repos` と `POST /api/repos/:owner/:repo/fork` は、それぞれ `recipe_created` と `repository_forked` の Contribution event を Repository 書き込みと同じ D1 batch で記録する。`PATCH /api/repos/:owner/:repo` は name、slug、description、version、servings、README、license のいずれかが変わる場合だけ `recipe_updated` を同じ D1 batch で記録する。
 
 ### 16.3 Inventory
 

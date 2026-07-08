@@ -1,5 +1,7 @@
 import type { RecipeRepositoryEntity } from "../../domain";
-import type { D1Database } from "../../workers/api/types";
+import type { D1Database, D1PreparedStatement } from "../../workers/api/types";
+import type { CloudContributionEvent, ContributionEventType } from "./D1ContributionEvent";
+import type { ContributionVisibility } from "./D1UserProfileRepository";
 
 export type CloudRecipeRepository = RecipeRepositoryEntity & {
   ownerUserId: string;
@@ -39,6 +41,26 @@ export type UpdateRecipeRepositoryInput = {
   now: string;
 };
 
+export type RepositoryContributionInput = {
+  id: string;
+  eventType: Extract<
+    ContributionEventType,
+    "recipe_created" | "recipe_updated" | "repository_forked"
+  >;
+  occurredOn: string;
+  occurredAt: string;
+  visibility: ContributionVisibility;
+  metadata: Record<string, unknown>;
+};
+
+export type CreateRecipeRepositoryWithContributionInput = CreateRecipeRepositoryInput & {
+  contribution: RepositoryContributionInput;
+};
+
+export type UpdateRecipeRepositoryWithContributionInput = UpdateRecipeRepositoryInput & {
+  contribution: RepositoryContributionInput;
+};
+
 type RecipeRepositoryRow = {
   id: string;
   owner_user_id: string;
@@ -58,10 +80,18 @@ type RecipeRepositoryRow = {
 
 export type RecipeRepositoryMetadataRepository = {
   create(input: CreateRecipeRepositoryInput): Promise<CloudRecipeRepository>;
+  createWithContribution(input: CreateRecipeRepositoryWithContributionInput): Promise<{
+    contributionEvent: CloudContributionEvent;
+    repository: CloudRecipeRepository;
+  }>;
   delete(id: string): Promise<void>;
   findByOwnerAndSlug(ownerHandle: string, slug: string): Promise<CloudRecipeRepository | null>;
   listPublic(): Promise<CloudRecipeRepository[]>;
   update(input: UpdateRecipeRepositoryInput): Promise<CloudRecipeRepository>;
+  updateWithContribution(input: UpdateRecipeRepositoryWithContributionInput): Promise<{
+    contributionEvent: CloudContributionEvent;
+    repository: CloudRecipeRepository;
+  }>;
 };
 
 const repositorySelect = `SELECT
@@ -114,7 +144,81 @@ export class D1RecipeRepository implements RecipeRepositoryMetadataRepository {
     const version = input.version ?? "0.1.0";
     const servings = input.servings ?? 2;
 
-    await this.db
+    await this.createRepositoryStatement(input, visibility, version, servings).run();
+
+    return buildCreatedRepository(input, visibility, version, servings);
+  }
+
+  async createWithContribution(input: CreateRecipeRepositoryWithContributionInput): Promise<{
+    contributionEvent: CloudContributionEvent;
+    repository: CloudRecipeRepository;
+  }> {
+    const visibility = input.visibility ?? "public";
+    const version = input.version ?? "0.1.0";
+    const servings = input.servings ?? 2;
+
+    await this.db.batch([
+      this.createRepositoryStatement(input, visibility, version, servings),
+      this.contributionEventStatement(input.ownerUserId, input.id, input.contribution),
+    ]);
+
+    return {
+      contributionEvent: buildContributionEvent(input.ownerUserId, input.id, input.contribution),
+      repository: buildCreatedRepository(input, visibility, version, servings),
+    };
+  }
+
+  async update(input: UpdateRecipeRepositoryInput): Promise<CloudRecipeRepository> {
+    await this.updateRepositoryStatement(input).run();
+
+    return buildUpdatedRepository(input);
+  }
+
+  async updateWithContribution(input: UpdateRecipeRepositoryWithContributionInput): Promise<{
+    contributionEvent: CloudContributionEvent;
+    repository: CloudRecipeRepository;
+  }> {
+    await this.db.batch([
+      this.updateRepositoryStatement(input),
+      this.contributionEventStatement(input.ownerUserId, input.id, input.contribution),
+    ]);
+
+    return {
+      contributionEvent: buildContributionEvent(input.ownerUserId, input.id, input.contribution),
+      repository: buildUpdatedRepository(input),
+    };
+  }
+
+  async delete(id: string): Promise<void> {
+    await this.db.batch([
+      this.db
+        .prepare(
+          `DELETE FROM ingredient_dependencies
+           WHERE component_id IN (
+             SELECT id FROM recipe_components WHERE repository_id = ?
+           )`,
+        )
+        .bind(id),
+      this.db.prepare("DELETE FROM recipe_components WHERE repository_id = ?").bind(id),
+      this.db.prepare("DELETE FROM repository_stars WHERE repository_id = ?").bind(id),
+      this.db.prepare("DELETE FROM contribution_events WHERE repository_id = ?").bind(id),
+      this.db.prepare("DELETE FROM cooking_logs WHERE repository_id = ?").bind(id),
+      this.db
+        .prepare(
+          "UPDATE recipe_repositories SET source_repository_id = NULL WHERE source_repository_id = ?",
+        )
+        .bind(id),
+      this.db.prepare("DELETE FROM recipe_repositories WHERE id = ?").bind(id),
+    ]);
+  }
+
+  private createRepositoryStatement(
+    input: CreateRecipeRepositoryInput,
+    visibility: RecipeRepositoryEntity["visibility"],
+    version: string,
+    servings: number,
+  ): D1PreparedStatement {
+    return this.db
       .prepare(
         `INSERT INTO recipe_repositories (
            id, owner_user_id, name, slug, description, visibility, version,
@@ -136,31 +240,11 @@ export class D1RecipeRepository implements RecipeRepositoryMetadataRepository {
         input.sourceRepositoryId ?? null,
         input.now,
         input.now,
-      )
-      .run();
-
-    return {
-      id: input.id,
-      ownerUserId: input.ownerUserId,
-      ownerHandle: input.ownerHandle,
-      name: input.name,
-      slug: input.slug,
-      description: input.description,
-      visibility,
-      version,
-      servings,
-      tags: [],
-      license: input.license,
-      maintainer: input.ownerHandle,
-      readme: input.readme,
-      sourceRepositoryId: input.sourceRepositoryId,
-      createdAt: input.now,
-      updatedAt: input.now,
-    };
+      );
   }
 
-  async update(input: UpdateRecipeRepositoryInput): Promise<CloudRecipeRepository> {
-    await this.db
+  private updateRepositoryStatement(input: UpdateRecipeRepositoryInput): D1PreparedStatement {
+    return this.db
       .prepare(
         `UPDATE recipe_repositories
          SET name = ?,
@@ -187,51 +271,99 @@ export class D1RecipeRepository implements RecipeRepositoryMetadataRepository {
         input.sourceRepositoryId ?? null,
         input.now,
         input.id,
+      );
+  }
+
+  private contributionEventStatement(
+    userId: string,
+    repositoryId: string,
+    input: RepositoryContributionInput,
+  ): D1PreparedStatement {
+    return this.db
+      .prepare(
+        `INSERT INTO contribution_events (
+           id, user_id, event_type, repository_id, occurred_on, occurred_at,
+           contribution_count, visibility, metadata_json
+         )
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run();
-
-    return {
-      id: input.id,
-      ownerUserId: input.ownerUserId,
-      ownerHandle: input.ownerHandle,
-      name: input.name,
-      slug: input.slug,
-      description: input.description,
-      visibility: input.visibility,
-      version: input.version,
-      servings: input.servings,
-      tags: [],
-      license: input.license,
-      maintainer: input.ownerHandle,
-      readme: input.readme,
-      sourceRepositoryId: input.sourceRepositoryId,
-      createdAt: input.createdAt,
-      updatedAt: input.now,
-    };
+      .bind(
+        input.id,
+        userId,
+        input.eventType,
+        repositoryId,
+        input.occurredOn,
+        input.occurredAt,
+        1,
+        input.visibility,
+        JSON.stringify(input.metadata),
+      );
   }
+}
 
-  async delete(id: string): Promise<void> {
-    await this.db.batch([
-      this.db
-        .prepare(
-          `DELETE FROM ingredient_dependencies
-           WHERE component_id IN (
-             SELECT id FROM recipe_components WHERE repository_id = ?
-           )`,
-        )
-        .bind(id),
-      this.db.prepare("DELETE FROM recipe_components WHERE repository_id = ?").bind(id),
-      this.db.prepare("DELETE FROM repository_stars WHERE repository_id = ?").bind(id),
-      this.db.prepare("DELETE FROM contribution_events WHERE repository_id = ?").bind(id),
-      this.db.prepare("DELETE FROM cooking_logs WHERE repository_id = ?").bind(id),
-      this.db
-        .prepare(
-          "UPDATE recipe_repositories SET source_repository_id = NULL WHERE source_repository_id = ?",
-        )
-        .bind(id),
-      this.db.prepare("DELETE FROM recipe_repositories WHERE id = ?").bind(id),
-    ]);
-  }
+function buildCreatedRepository(
+  input: CreateRecipeRepositoryInput,
+  visibility: RecipeRepositoryEntity["visibility"],
+  version: string,
+  servings: number,
+): CloudRecipeRepository {
+  return {
+    id: input.id,
+    ownerUserId: input.ownerUserId,
+    ownerHandle: input.ownerHandle,
+    name: input.name,
+    slug: input.slug,
+    description: input.description,
+    visibility,
+    version,
+    servings,
+    tags: [],
+    license: input.license,
+    maintainer: input.ownerHandle,
+    readme: input.readme,
+    sourceRepositoryId: input.sourceRepositoryId,
+    createdAt: input.now,
+    updatedAt: input.now,
+  };
+}
+
+function buildUpdatedRepository(input: UpdateRecipeRepositoryInput): CloudRecipeRepository {
+  return {
+    id: input.id,
+    ownerUserId: input.ownerUserId,
+    ownerHandle: input.ownerHandle,
+    name: input.name,
+    slug: input.slug,
+    description: input.description,
+    visibility: input.visibility,
+    version: input.version,
+    servings: input.servings,
+    tags: [],
+    license: input.license,
+    maintainer: input.ownerHandle,
+    readme: input.readme,
+    sourceRepositoryId: input.sourceRepositoryId,
+    createdAt: input.createdAt,
+    updatedAt: input.now,
+  };
+}
+
+function buildContributionEvent(
+  userId: string,
+  repositoryId: string,
+  input: RepositoryContributionInput,
+): CloudContributionEvent {
+  return {
+    contributionCount: 1,
+    eventType: input.eventType,
+    id: input.id,
+    metadata: input.metadata,
+    occurredAt: input.occurredAt,
+    occurredOn: input.occurredOn,
+    repositoryId,
+    userId,
+    visibility: input.visibility,
+  };
 }
 
 export function mapRecipeRepositoryRow(row: RecipeRepositoryRow): CloudRecipeRepository {

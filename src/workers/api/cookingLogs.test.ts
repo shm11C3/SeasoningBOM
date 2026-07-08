@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
+import type { CloudContributionEvent } from "../../repositories/cloudflare-d1/D1ContributionEvent";
 import type {
-  CloudContributionEvent,
   CloudCookingLog,
   CookingLogRepository,
   CreateCookingLogWithContributionInput,
@@ -510,28 +510,50 @@ function createRecipeRepository(
 ): RecipeRepositoryMetadataRepository {
   const repositories = [...initialRepositories];
 
+  function buildRepository(input: CreateRecipeRepositoryInput): CloudRecipeRepository {
+    return {
+      createdAt: input.now,
+      description: input.description,
+      id: input.id,
+      license: input.license,
+      maintainer: input.ownerHandle,
+      name: input.name,
+      ownerHandle: input.ownerHandle,
+      ownerUserId: input.ownerUserId,
+      readme: input.readme,
+      servings: input.servings ?? 2,
+      slug: input.slug,
+      sourceRepositoryId: input.sourceRepositoryId,
+      tags: [],
+      updatedAt: input.now,
+      version: input.version ?? "0.1.0",
+      visibility: input.visibility ?? "public",
+    };
+  }
+
   return {
     async create(input: CreateRecipeRepositoryInput) {
-      const repository: CloudRecipeRepository = {
-        createdAt: input.now,
-        description: input.description,
-        id: input.id,
-        license: input.license,
-        maintainer: input.ownerHandle,
-        name: input.name,
-        ownerHandle: input.ownerHandle,
-        ownerUserId: input.ownerUserId,
-        readme: input.readme,
-        servings: input.servings ?? 2,
-        slug: input.slug,
-        sourceRepositoryId: input.sourceRepositoryId,
-        tags: [],
-        updatedAt: input.now,
-        version: input.version ?? "0.1.0",
-        visibility: input.visibility ?? "public",
-      };
+      const repository = buildRepository(input);
       repositories.push(repository);
       return repository;
+    },
+    async createWithContribution(input) {
+      const repository = buildRepository(input);
+      repositories.push(repository);
+      return {
+        contributionEvent: {
+          contributionCount: 1,
+          eventType: input.contribution.eventType,
+          id: input.contribution.id,
+          metadata: input.contribution.metadata,
+          occurredAt: input.contribution.occurredAt,
+          occurredOn: input.contribution.occurredOn,
+          repositoryId: input.id,
+          userId: input.ownerUserId,
+          visibility: input.contribution.visibility,
+        },
+        repository,
+      };
     },
     async delete(id) {
       const index = repositories.findIndex((repository) => repository.id === id);
@@ -573,6 +595,44 @@ function createRecipeRepository(
         repositories[index] = repository;
       }
       return repository;
+    },
+    async updateWithContribution(input) {
+      const repository: CloudRecipeRepository = {
+        createdAt: input.createdAt,
+        description: input.description,
+        id: input.id,
+        license: input.license,
+        maintainer: input.ownerHandle,
+        name: input.name,
+        ownerHandle: input.ownerHandle,
+        ownerUserId: input.ownerUserId,
+        readme: input.readme,
+        servings: input.servings,
+        slug: input.slug,
+        sourceRepositoryId: input.sourceRepositoryId,
+        tags: [],
+        updatedAt: input.now,
+        version: input.version,
+        visibility: input.visibility,
+      };
+      const index = repositories.findIndex((item) => item.id === input.id);
+      if (index >= 0) {
+        repositories[index] = repository;
+      }
+      return {
+        contributionEvent: {
+          contributionCount: 1,
+          eventType: input.contribution.eventType,
+          id: input.contribution.id,
+          metadata: input.contribution.metadata,
+          occurredAt: input.contribution.occurredAt,
+          occurredOn: input.contribution.occurredOn,
+          repositoryId: input.id,
+          userId: input.ownerUserId,
+          visibility: input.contribution.visibility,
+        },
+        repository,
+      };
     },
   };
 }

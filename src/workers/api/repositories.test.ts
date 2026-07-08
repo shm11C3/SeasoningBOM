@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { CloudContributionEvent } from "../../repositories/cloudflare-d1/D1ContributionEvent";
 import type {
   CloudInventoryItem,
   CreateInventoryItemInput,
@@ -1167,6 +1168,7 @@ describe("repository API handlers", () => {
     } satisfies CloudRecipeRepository;
     const recipeRepositories = createRecipeRepository([sourceRepository]);
     const response = await handlePostRepositoryFork("source-user", "public-curry", owner, env, {
+      createContributionEventId: () => "contribution_fork",
       createRepositoryId: () => "repo_fork",
       now: () => new Date("2026-07-06T02:03:04.000Z"),
       recipeRepositories,
@@ -1190,6 +1192,27 @@ describe("repository API handlers", () => {
         sourceRepositoryId: "repo_source",
       }),
     );
+    expect(recipeRepositories.listContributionEvents()).toEqual([
+      {
+        contributionCount: 1,
+        eventType: "repository_forked",
+        id: "contribution_fork",
+        metadata: {
+          repositoryName: "Public Curry",
+          repositoryOwnerHandle: "test-user",
+          repositorySlug: "public-curry",
+          sourceRepositoryId: "repo_source",
+          sourceRepositoryOwnerHandle: "source-user",
+          sourceRepositorySlug: "public-curry",
+          version: "1.2.3",
+        },
+        occurredAt: "2026-07-06T02:03:04.000Z",
+        occurredOn: "2026-07-06",
+        repositoryId: "repo_fork",
+        userId: "profile_test",
+        visibility: "summary_only",
+      },
+    ]);
   });
 
   it("forks unlisted repositories by exact URL", async () => {
@@ -1334,7 +1357,7 @@ describe("repository API handlers", () => {
     const response = await handlePostRepositoryFork("source-user", "public-curry", owner, env, {
       recipeRepositories: {
         ...createRecipeRepository([sourceRepository]),
-        async create() {
+        async createWithContribution() {
           throw new Error("D1 constraint");
         },
         async findByOwnerAndSlug(ownerHandle, slug) {
@@ -1369,7 +1392,7 @@ describe("repository API handlers", () => {
     const response = await handlePostRepositoryFork("source-user", "public-curry", owner, env, {
       recipeRepositories: {
         ...createRecipeRepository([sourceRepository]),
-        async create() {
+        async createWithContribution() {
           throw new Error("D1 unavailable");
         },
         async findByOwnerAndSlug(ownerHandle, slug) {
@@ -1406,7 +1429,7 @@ describe("repository API handlers", () => {
     const response = await handlePostRepositoryFork("source-user", "public-curry", owner, env, {
       recipeRepositories: {
         ...createRecipeRepository([sourceRepository]),
-        async create() {
+        async createWithContribution() {
           throw new Error("D1 unavailable");
         },
       },
@@ -1422,6 +1445,7 @@ describe("repository API handlers", () => {
   });
 
   it("creates a repository with default metadata", async () => {
+    const recipeRepositories = createRecipeRepository([]);
     const response = await handlePostRepository(
       new Request("https://example.test/api/repos", {
         body: JSON.stringify({
@@ -1433,9 +1457,10 @@ describe("repository API handlers", () => {
       owner,
       env,
       {
+        createContributionEventId: () => "contribution_create",
         createRepositoryId: () => "repo_new",
         now: () => new Date("2026-07-06T01:02:03.000Z"),
-        recipeRepositories: createRecipeRepository([]),
+        recipeRepositories,
       },
     );
 
@@ -1448,6 +1473,106 @@ describe("repository API handlers", () => {
       }),
     });
     expect(response.status).toBe(201);
+    expect(recipeRepositories.listContributionEvents()).toEqual([
+      {
+        contributionCount: 1,
+        eventType: "recipe_created",
+        id: "contribution_create",
+        metadata: {
+          repositoryName: "Curry Rice",
+          repositoryOwnerHandle: "test-user",
+          repositorySlug: "curry-rice",
+          version: "0.1.0",
+        },
+        occurredAt: "2026-07-06T01:02:03.000Z",
+        occurredOn: "2026-07-06",
+        repositoryId: "repo_new",
+        userId: "profile_test",
+        visibility: "summary_only",
+      },
+    ]);
+  });
+
+  it("updates a repository and records a contribution event", async () => {
+    const recipeRepositories = createRecipeRepository([privateRepository]);
+    const response = await handlePatchRepository(
+      new Request("https://example.test/api/repos/test-user/private-curry", {
+        body: JSON.stringify({
+          name: "Renamed Curry",
+          slug: "renamed-curry",
+          version: "1.0.0",
+        }),
+        method: "PATCH",
+      }),
+      "test-user",
+      "private-curry",
+      owner,
+      env,
+      {
+        createContributionEventId: () => "contribution_update",
+        now: () => new Date("2026-07-06T03:04:05.000Z"),
+        recipeRepositories,
+      },
+    );
+
+    await expect(parseJson(response)).resolves.toEqual({
+      repository: expect.objectContaining({
+        id: "repo_private",
+        name: "Renamed Curry",
+        slug: "renamed-curry",
+        updatedAt: "2026-07-06T03:04:05.000Z",
+        version: "1.0.0",
+      }),
+    });
+    expect(response.status).toBe(200);
+    expect(recipeRepositories.listContributionEvents()).toEqual([
+      {
+        contributionCount: 1,
+        eventType: "recipe_updated",
+        id: "contribution_update",
+        metadata: {
+          previousRepositorySlug: "private-curry",
+          repositoryName: "Renamed Curry",
+          repositoryOwnerHandle: "test-user",
+          repositorySlug: "renamed-curry",
+          version: "1.0.0",
+        },
+        occurredAt: "2026-07-06T03:04:05.000Z",
+        occurredOn: "2026-07-06",
+        repositoryId: "repo_private",
+        userId: "profile_test",
+        visibility: "summary_only",
+      },
+    ]);
+  });
+
+  it("does not record a contribution for visibility-only repository updates", async () => {
+    const recipeRepositories = createRecipeRepository([privateRepository]);
+    const response = await handlePatchRepository(
+      new Request("https://example.test/api/repos/test-user/private-curry", {
+        body: JSON.stringify({ visibility: "public" }),
+        method: "PATCH",
+      }),
+      "test-user",
+      "private-curry",
+      owner,
+      env,
+      {
+        createContributionEventId: () => "contribution_visibility",
+        now: () => new Date("2026-07-06T03:04:05.000Z"),
+        recipeRepositories,
+      },
+    );
+
+    await expect(parseJson(response)).resolves.toEqual({
+      repository: expect.objectContaining({
+        id: "repo_private",
+        updatedAt: "2026-07-06T03:04:05.000Z",
+        visibility: "public",
+      }),
+    });
+    expect(response.status).toBe(200);
+    expect(recipeRepositories.listContributionEvents()).toEqual([]);
   });
 
   it.each([
@@ -1537,7 +1662,7 @@ describe("repository API handlers", () => {
       {
         recipeRepositories: {
           ...createRecipeRepository([]),
-          async create() {
+          async createWithContribution() {
             throw new Error("D1 constraint");
           },
           async findByOwnerAndSlug() {
@@ -1562,7 +1687,7 @@ describe("repository API handlers", () => {
     const response = await handlePostRepository(createValidPostRequest(), owner, env, {
       recipeRepositories: {
         ...createRecipeRepository([]),
-        async create() {
+        async createWithContribution() {
           throw new Error("D1 unavailable");
         },
         async findByOwnerAndSlug() {
@@ -1588,7 +1713,7 @@ describe("repository API handlers", () => {
     const response = await handlePostRepository(createValidPostRequest(), owner, env, {
       recipeRepositories: {
         ...createRecipeRepository([]),
-        async create() {
+        async createWithContribution() {
           throw new Error("D1 unavailable");
         },
         async findByOwnerAndSlug() {
@@ -1699,7 +1824,7 @@ describe("repository API handlers", () => {
       {
         recipeRepositories: {
           ...createRecipeRepository([privateRepository]),
-          async update() {
+          async updateWithContribution() {
             throw new Error("D1 unavailable");
           },
         },
@@ -1786,31 +1911,57 @@ function repositoryStarKey(key: { repositoryId: string; userId: string }): strin
 
 function createRecipeRepository(
   initialRepositories: CloudRecipeRepository[],
-): RecipeRepositoryMetadataRepository {
+): RecipeRepositoryMetadataRepository & {
+  listContributionEvents(): CloudContributionEvent[];
+} {
   const repositories = [...initialRepositories];
+  const contributionEvents: CloudContributionEvent[] = [];
+
+  function buildRepository(input: CreateRecipeRepositoryInput): CloudRecipeRepository {
+    return {
+      createdAt: input.now,
+      description: input.description,
+      id: input.id,
+      license: input.license,
+      maintainer: input.ownerHandle,
+      name: input.name,
+      ownerHandle: input.ownerHandle,
+      ownerUserId: input.ownerUserId,
+      readme: input.readme,
+      servings: input.servings ?? 2,
+      slug: input.slug,
+      sourceRepositoryId: input.sourceRepositoryId,
+      tags: [],
+      updatedAt: input.now,
+      version: input.version ?? "0.1.0",
+      visibility: input.visibility ?? "public",
+    };
+  }
 
   return {
     async create(input: CreateRecipeRepositoryInput) {
-      const repository: CloudRecipeRepository = {
-        createdAt: input.now,
-        description: input.description,
-        id: input.id,
-        license: input.license,
-        maintainer: input.ownerHandle,
-        name: input.name,
-        ownerHandle: input.ownerHandle,
-        ownerUserId: input.ownerUserId,
-        readme: input.readme,
-        servings: input.servings ?? 2,
-        slug: input.slug,
-        sourceRepositoryId: input.sourceRepositoryId,
-        tags: [],
-        updatedAt: input.now,
-        version: input.version ?? "0.1.0",
-        visibility: input.visibility ?? "public",
-      };
+      const repository = buildRepository(input);
       repositories.push(repository);
       return repository;
+    },
+    async createWithContribution(input) {
+      const repository = buildRepository(input);
+      repositories.push(repository);
+      contributionEvents.push({
+        contributionCount: 1,
+        eventType: input.contribution.eventType,
+        id: input.contribution.id,
+        metadata: input.contribution.metadata,
+        occurredAt: input.contribution.occurredAt,
+        occurredOn: input.contribution.occurredOn,
+        repositoryId: input.id,
+        userId: input.ownerUserId,
+        visibility: input.contribution.visibility,
+      });
+      return {
+        contributionEvent: contributionEvents.at(-1) as CloudContributionEvent,
+        repository,
+      };
     },
     async delete(id) {
       const index = repositories.findIndex((repository) => repository.id === id);
@@ -1827,6 +1978,9 @@ function createRecipeRepository(
     },
     async listPublic() {
       return repositories.filter((repository) => repository.visibility === "public");
+    },
+    listContributionEvents() {
+      return [...contributionEvents];
     },
     async update(input) {
       const repository: CloudRecipeRepository = {
@@ -1852,6 +2006,45 @@ function createRecipeRepository(
         repositories[index] = repository;
       }
       return repository;
+    },
+    async updateWithContribution(input) {
+      const repository: CloudRecipeRepository = {
+        createdAt: input.createdAt,
+        description: input.description,
+        id: input.id,
+        license: input.license,
+        maintainer: input.ownerHandle,
+        name: input.name,
+        ownerHandle: input.ownerHandle,
+        ownerUserId: input.ownerUserId,
+        readme: input.readme,
+        servings: input.servings,
+        slug: input.slug,
+        sourceRepositoryId: input.sourceRepositoryId,
+        tags: [],
+        updatedAt: input.now,
+        version: input.version,
+        visibility: input.visibility,
+      };
+      const index = repositories.findIndex((item) => item.id === input.id);
+      if (index >= 0) {
+        repositories[index] = repository;
+      }
+      contributionEvents.push({
+        contributionCount: 1,
+        eventType: input.contribution.eventType,
+        id: input.contribution.id,
+        metadata: input.contribution.metadata,
+        occurredAt: input.contribution.occurredAt,
+        occurredOn: input.contribution.occurredOn,
+        repositoryId: input.id,
+        userId: input.ownerUserId,
+        visibility: input.contribution.visibility,
+      });
+      return {
+        contributionEvent: contributionEvents.at(-1) as CloudContributionEvent,
+        repository,
+      };
     },
   };
 }

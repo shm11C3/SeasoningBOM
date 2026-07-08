@@ -1,5 +1,5 @@
+import type { CloudContributionEvent } from "../../repositories/cloudflare-d1/D1ContributionEvent";
 import {
-  type CloudContributionEvent,
   type CloudCookingLog,
   type CookingLogRepository,
   D1CookingLogRepository,

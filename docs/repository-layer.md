@@ -105,6 +105,7 @@ src/repositories/cloudflare-d1/
   D1InventoryRepository.ts
   D1CookingLogRepository.ts
   D1RepositoryStarRepository.ts
+  D1ContributionEvent.ts
   D1ContributionRepository.ts
 
 src/workers/
@@ -133,6 +134,7 @@ Production rules:
 - User Handles cannot use app route roots such as `api`, `backup`, `eol`, `inventory`, `new`, `repositories`, `security`, or `users`.
 - `user_profiles` is created through the profile bootstrap endpoint after a valid Clerk session.
 - D1 Repository metadata list/detail/create is handled by `D1RecipeRepository` and Workers API handlers.
+- Repository create/fork writes insert `recipe_created` and `repository_forked` rows into `contribution_events` in the same D1 batch as the `recipe_repositories` write. Repository updates insert `recipe_updated` only when name, slug, description, version, servings, README, or license changes; visibility-only or no-op updates do not create contribution events.
 - private Repository reads require the owner.
 - unlisted Repository reads require the exact URL but are not listed publicly.
 - Repository dependency reads and full-manifest replacements are handled by `D1RecipeComponentRepository` and exposed through `GET /api/repos/:owner/:repo/dependencies` and `PUT /api/repos/:owner/:repo/dependencies`.
