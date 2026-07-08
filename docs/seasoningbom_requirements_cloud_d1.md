@@ -725,6 +725,7 @@ POST   /api/repos/:owner/:repo/fork
 
 GET    /api/repos/:owner/:repo/bom
 GET    /api/repos/:owner/:repo/dependencies
+PUT    /api/repos/:owner/:repo/dependencies
 GET    /api/repos/:owner/:repo/security
 ```
 

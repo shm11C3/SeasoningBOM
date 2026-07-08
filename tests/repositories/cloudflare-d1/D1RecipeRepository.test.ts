@@ -206,7 +206,7 @@ describe("D1RecipeRepository", () => {
       .prepare(
         `INSERT INTO ingredient_dependencies (
            id, component_id, dependency_name, dependency_type, allergens_json, notes
-         )
+        )
          VALUES (?, ?, ?, ?, ?, ?)`,
       )
       .run("dependency_test", "component_test", "wheat", "transitive", '["wheat"]', null);

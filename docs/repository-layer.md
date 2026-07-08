@@ -135,8 +135,10 @@ Production rules:
 - D1 Repository metadata list/detail/create is handled by `D1RecipeRepository` and Workers API handlers.
 - private Repository reads require the owner.
 - unlisted Repository reads require the exact URL but are not listed publicly.
-- Repository dependency reads are handled by `D1RecipeComponentRepository` and exposed through `GET /api/repos/:owner/:repo/dependencies`.
+- Repository dependency reads and full-manifest replacements are handled by `D1RecipeComponentRepository` and exposed through `GET /api/repos/:owner/:repo/dependencies` and `PUT /api/repos/:owner/:repo/dependencies`.
 - Repository dependency reads follow the same public / unlisted / private authorization boundary as repository metadata.
+- Repository dependency replacements are owner-only and require Authorization bearer tokens. Clerk `__session` cookies are not accepted for this mutation.
+- Repository dependency replacements are capped at 38 total component/dependency rows so the D1 batch stays within the free-tier query budget after auth/profile/repository lookups.
 - Repository stars are handled by `D1RepositoryStarRepository` and Workers API handlers.
 - Repository forks create a new repository owned by the authenticated user and preserve the source repository through `recipe_repositories.source_repository_id`.
 - `inventory_items` CRUD is handled by `D1InventoryRepository` and Workers API handlers.

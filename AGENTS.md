@@ -189,6 +189,7 @@ Use the right test layer for the risk:
 - IndexedDB persistence, backup import/export, and reload durability should have Playwright E2E coverage.
 - For the local prototype, prefer proving persistence behavior through UI actions plus reload/export assertions before reaching into IndexedDB directly.
 - Cloud D1 access-control behavior should be covered at the API/Worker layer and with E2E tests for public/private/unlisted visibility.
+- For D1 batch writes, check current Cloudflare D1 query, batch, and bound-parameter limits. Keep MVP write batches inside the free-tier query budget unless docs explicitly justify a paid-tier assumption.
 
 When changing `src/repositories/`, `src/db/`, or backup flows, run:
 
@@ -216,6 +217,12 @@ When adding or changing behavior:
 - Add an ADR for architectural decisions.
 - Keep README concise and user-facing.
 - Keep AGENTS.md practical for future agents.
+
+## PR Workflow Guidance
+
+- Ask CodeRabbit to review each PR, for example by commenting `@coderabbitai review`.
+- Use squash merge for PRs.
+- CodeRabbit review status does not satisfy GitHub rulesets that require an approving review. If a PR is blocked by `REVIEW_REQUIRED`, request or wait for a real GitHub approval; do not use administrator bypass unless the user explicitly authorizes bypassing branch protection.
 
 ## PR Self-Review Guidance
 

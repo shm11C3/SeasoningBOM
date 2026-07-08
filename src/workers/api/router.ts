@@ -33,6 +33,7 @@ import {
   handlePostRepository,
   handlePostRepositoryFork,
   handlePostRepositoryStar,
+  handlePutRepositoryDependencies,
   type RepositoryRouteOptions,
 } from "./repositories";
 import {
@@ -76,7 +77,7 @@ const coreRoutes = {
     path: "/api/repos/:owner/:repo",
   },
   repositoryDependencies: {
-    allowedMethods: ["GET"],
+    allowedMethods: ["GET", "PUT"],
     path: "/api/repos/:owner/:repo/dependencies",
   },
   repositoryCookingLogs: {
@@ -292,6 +293,35 @@ export function createWorkerApiApp(options: WorkerApiOptions = {}): Hono<WorkerA
       context.req.raw,
       params.ownerHandle,
       params.slug,
+      context.env,
+      options,
+    );
+  });
+  app.put(coreRoutes.repositoryDependencies.path, async (context) => {
+    const params = getRepositoryParams(
+      context.req.param("owner"),
+      context.req.param("repo"),
+      context.req.raw,
+    );
+    if (!params.ok) {
+      return params.response;
+    }
+
+    const profileResult = await requireAuthenticatedProfile(
+      context.req.raw,
+      context.env,
+      "PUT",
+      options,
+    );
+    if (!profileResult.ok) {
+      return profileResult.response;
+    }
+
+    return handlePutRepositoryDependencies(
+      context.req.raw,
+      params.ownerHandle,
+      params.slug,
+      profileResult.profile,
       context.env,
       options,
     );

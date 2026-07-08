@@ -5,14 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { D1RecipeComponentRepository } from "../../../src/repositories/cloudflare-d1/D1RecipeComponentRepository";
 import { D1RecipeRepository } from "../../../src/repositories/cloudflare-d1/D1RecipeRepository";
 import { D1UserProfileRepository } from "../../../src/repositories/cloudflare-d1/D1UserProfileRepository";
-import type {
-  D1Database,
-  D1PreparedStatement,
-  D1Result,
-  D1Value,
-} from "../../../src/workers/api/types";
-
-type SqliteValue = bigint | null | number | string;
+import { createSqliteD1 } from "./sqliteD1";
 
 const migrationSql = readFileSync(join(process.cwd(), "migrations/0001_cloud_mvp.sql"), "utf8");
 
@@ -161,6 +154,93 @@ describe("D1RecipeComponentRepository", () => {
       }),
     ]);
   });
+
+  it("replaces components and removes stale ingredient dependencies", async () => {
+    insertComponent(sqlite, {
+      id: "component_old",
+      ingredientName: "old roux",
+      repositoryId: "repo_curry",
+    });
+    insertDependency(sqlite, {
+      componentId: "component_old",
+      dependencyName: "old milk",
+      id: "dependency_old",
+    });
+
+    await expect(
+      components.replaceByRepositoryId(
+        "repo_curry",
+        [
+          {
+            allergens: ["wheat"],
+            alternatives: ["homemade roux"],
+            dependencyType: "required",
+            id: "component_new",
+            ingredientName: "new roux",
+            quantity: 2,
+            recipeId: "repo_curry",
+            required: true,
+            transitiveDependencies: [
+              {
+                allergens: ["milk"],
+                dependencyType: "transitive",
+                name: "milk powder",
+                notes: "Often hidden.",
+              },
+            ],
+            unit: "box",
+          },
+        ],
+        "2026-07-06T03:04:05.000Z",
+      ),
+    ).resolves.toEqual([
+      {
+        allergens: ["wheat"],
+        alternatives: ["homemade roux"],
+        dependencyType: "required",
+        id: "component_new",
+        ingredientName: "new roux",
+        quantity: 2,
+        recipeId: "repo_curry",
+        required: true,
+        transitiveDependencies: [
+          {
+            allergens: ["milk"],
+            dependencyType: "transitive",
+            name: "milk powder",
+            notes: "Often hidden.",
+          },
+        ],
+        unit: "box",
+      },
+    ]);
+    expect(sqlite.prepare("SELECT COUNT(*) AS count FROM ingredient_dependencies").get()).toEqual({
+      count: 1,
+    });
+  });
+
+  it("clears all components for a repository", async () => {
+    insertComponent(sqlite, {
+      id: "component_old",
+      ingredientName: "old roux",
+      repositoryId: "repo_curry",
+    });
+    insertDependency(sqlite, {
+      componentId: "component_old",
+      dependencyName: "old milk",
+      id: "dependency_old",
+    });
+
+    await expect(
+      components.replaceByRepositoryId("repo_curry", [], "2026-07-06T03:04:05.000Z"),
+    ).resolves.toEqual([]);
+    expect(sqlite.prepare("SELECT COUNT(*) AS count FROM recipe_components").get()).toEqual({
+      count: 0,
+    });
+    expect(sqlite.prepare("SELECT COUNT(*) AS count FROM ingredient_dependencies").get()).toEqual({
+      count: 0,
+    });
+  });
 });
 
 function insertComponent(
@@ -218,54 +298,4 @@ function insertDependency(
     input.allergensJson ?? "[]",
     input.notes ?? null,
   );
-}
-
-function createSqliteD1(db: DatabaseSync): D1Database {
-  return {
-    batch: async () => {
-      throw new Error("batch is not implemented in this test adapter");
-    },
-    exec: async (query) => {
-      db.exec(query);
-      return { success: true };
-    },
-    prepare: (query) => createStatement(db, query),
-  };
-}
-
-function createStatement(
-  db: DatabaseSync,
-  query: string,
-  values: D1Value[] = [],
-): D1PreparedStatement {
-  const sqliteValues = values.map(toSqliteValue);
-
-  return {
-    all: async <T = unknown>() => {
-      const results = db.prepare(query).all(...sqliteValues) as T[];
-      return { results, success: true } satisfies D1Result<T>;
-    },
-    bind: (...nextValues) => createStatement(db, query, nextValues),
-    first: async <T = unknown>() =>
-      (db.prepare(query).get(...sqliteValues) as T | undefined) ?? null,
-    raw: async <_T = unknown>() => {
-      throw new Error("raw is not implemented in this test adapter");
-    },
-    run: async <T = unknown>() => {
-      db.prepare(query).run(...sqliteValues);
-      return { success: true } satisfies D1Result<T>;
-    },
-  };
-}
-
-function toSqliteValue(value: D1Value): SqliteValue {
-  if (typeof value === "boolean") {
-    return value ? 1 : 0;
-  }
-
-  if (value instanceof ArrayBuffer) {
-    throw new Error("ArrayBuffer values are not implemented in this test adapter");
-  }
-
-  return value;
 }
