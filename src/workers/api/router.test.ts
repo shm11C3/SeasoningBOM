@@ -554,6 +554,163 @@ describe("Worker API router", () => {
     expect(response.status).toBe(200);
   });
 
+  it("returns SeasoningBOM through the concrete Hono route", async () => {
+    const response = await handleApiRequest(
+      new Request("https://example.test/api/repos/test-user/public-curry/bom"),
+      env,
+      {
+        now: () => new Date("2026-07-06T02:03:04.000Z"),
+        recipeComponents: createRecipeComponentRepository([recipeComponent]),
+        recipeRepositories: createRecipeRepository([publicRecipeRepository]),
+      },
+    );
+
+    await expect(parseJson(response)).resolves.toEqual({
+      audit: {
+        issues: [
+          expect.objectContaining({ category: "allergen" }),
+          expect.objectContaining({ category: "transitive-dependency" }),
+        ],
+      },
+      bomFormat: "SeasoningBOM",
+      components: [expect.objectContaining({ name: "curry-roux" })],
+      generatedAt: "2026-07-06T02:03:04.000Z",
+      repository: expect.objectContaining({
+        owner: "test-user",
+        visibility: "public",
+      }),
+      specVersion: "0.1.0",
+    });
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-disposition")).toBe(
+      'attachment; filename="public-curry-seasoningbom.json"',
+    );
+  });
+
+  it("returns repository security alerts through the concrete Hono route", async () => {
+    const response = await handleApiRequest(
+      new Request("https://example.test/api/repos/test-user/public-curry/security"),
+      env,
+      {
+        now: () => new Date("2026-07-06T02:03:04.000Z"),
+        recipeComponents: createRecipeComponentRepository([recipeComponent]),
+        recipeRepositories: createRecipeRepository([publicRecipeRepository]),
+      },
+    );
+
+    await expect(parseJson(response)).resolves.toEqual({
+      generatedAt: "2026-07-06T02:03:04.000Z",
+      recipeAlerts: [
+        expect.objectContaining({ category: "allergen" }),
+        expect.objectContaining({ category: "transitive-dependency" }),
+      ],
+      repository: expect.objectContaining({ id: "repo_public" }),
+      summary: {
+        critical: 0,
+        high: 0,
+        low: 0,
+        medium: 2,
+        totalIssues: 2,
+      },
+    });
+    expect(response.status).toBe(200);
+  });
+
+  it("runs inventory audit through the authenticated concrete Hono route", async () => {
+    const response = await handleApiRequest(
+      new Request("https://example.test/api/repos/test-user/public-curry/audit", {
+        headers: {
+          authorization: "Bearer fake-session",
+        },
+        method: "POST",
+      }),
+      configuredEnv,
+      {
+        ...validSessionAuth,
+        inventoryItems: createInventoryRepository([inventoryItem]),
+        now: () => new Date("2026-07-06T02:03:04.000Z"),
+        recipeComponents: createRecipeComponentRepository([recipeComponent]),
+        recipeRepositories: createRecipeRepository([publicRecipeRepository]),
+        userProfiles: createUserProfileRepository([userProfile]),
+      },
+    );
+
+    await expect(parseJson(response)).resolves.toEqual({
+      inventoryAudit: {
+        generatedAt: "2026-07-06T02:03:04.000Z",
+        issues: [
+          expect.objectContaining({
+            category: "missing",
+            componentName: "curry-roux",
+          }),
+        ],
+        recipeId: "repo_public",
+        summary: {
+          critical: 0,
+          high: 1,
+          low: 0,
+          medium: 0,
+          totalIssues: 1,
+        },
+      },
+      repository: expect.objectContaining({ id: "repo_public" }),
+    });
+    expect(response.status).toBe(200);
+  });
+
+  it("requires bearer auth for repository audit", async () => {
+    const response = await handleApiRequest(
+      new Request("https://example.test/api/repos/test-user/public-curry/audit", {
+        headers: {
+          cookie: "__session=fake-session",
+        },
+        method: "POST",
+      }),
+      configuredEnv,
+      {
+        ...validSessionAuth,
+        inventoryItems: createInventoryRepository([inventoryItem]),
+        recipeComponents: createRecipeComponentRepository([recipeComponent]),
+        recipeRepositories: createRecipeRepository([publicRecipeRepository]),
+        userProfiles: createUserProfileRepository([userProfile]),
+      },
+    );
+
+    await expect(parseJson(response)).resolves.toEqual({
+      error: {
+        code: "not_authenticated",
+        message: "Sign in with Clerk to access this endpoint.",
+      },
+    });
+    expect(response.status).toBe(401);
+  });
+
+  it("rejects unsupported repository BOM, security, and audit methods", async () => {
+    const bomResponse = await handleApiRequest(
+      new Request("https://example.test/api/repos/test-user/public-curry/bom", {
+        method: "POST",
+      }),
+      env,
+    );
+    const securityResponse = await handleApiRequest(
+      new Request("https://example.test/api/repos/test-user/public-curry/security", {
+        method: "POST",
+      }),
+      env,
+    );
+    const auditResponse = await handleApiRequest(
+      new Request("https://example.test/api/repos/test-user/public-curry/audit"),
+      env,
+    );
+
+    expect(bomResponse.status).toBe(405);
+    expect(bomResponse.headers.get("allow")).toBe("GET");
+    expect(securityResponse.status).toBe(405);
+    expect(securityResponse.headers.get("allow")).toBe("GET");
+    expect(auditResponse.status).toBe(405);
+    expect(auditResponse.headers.get("allow")).toBe("POST");
+  });
+
   it("replaces repository dependencies through the concrete Hono route", async () => {
     const response = await handleApiRequest(
       new Request("https://example.test/api/repos/test-user/public-curry/dependencies", {

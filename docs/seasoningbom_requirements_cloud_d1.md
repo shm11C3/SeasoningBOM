@@ -729,6 +729,10 @@ PUT    /api/repos/:owner/:repo/dependencies
 GET    /api/repos/:owner/:repo/security
 ```
 
+`/bom` は Repository content と公開可能な Recipe Alert だけから SeasoningBOM JSON を都度生成し、Inventory Audit details を含めない。
+
+`/security` は Repository content 由来の Recipe Alert だけを返し、ログイン本人の Inventory Audit は返さない。
+
 ### 16.3 Inventory
 
 ```text
@@ -743,6 +747,8 @@ DELETE /api/inventory/:id
 ```text
 POST /api/repos/:owner/:repo/audit
 ```
+
+`/audit` は Bearer token による Clerk session と bootstrapped profile を必須とし、読み取り可能な Repository とログイン本人の Inventory だけを照合する。MVP Cloud D1 では hosted user settings が未実装のため、audit threshold はアプリの default settings を使う。
 
 ### 16.5 Cooking Log
 

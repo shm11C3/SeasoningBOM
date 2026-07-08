@@ -1,4 +1,10 @@
 import { describe, expect, it } from "vitest";
+import type {
+  CloudInventoryItem,
+  CreateInventoryItemInput,
+  InventoryItemRepository,
+  UpdateInventoryItemInput,
+} from "../../repositories/cloudflare-d1/D1InventoryRepository";
 import type { RecipeComponentWriteRepository } from "../../repositories/cloudflare-d1/D1RecipeComponentRepository";
 import type {
   CloudRecipeRepository,
@@ -15,10 +21,13 @@ import {
   handleDeleteRepository,
   handleDeleteRepositoryStar,
   handleGetRepository,
+  handleGetRepositoryBom,
   handleGetRepositoryDependencies,
+  handleGetRepositorySecurity,
   handleListRepositories,
   handlePatchRepository,
   handlePostRepository,
+  handlePostRepositoryAudit,
   handlePostRepositoryFork,
   handlePostRepositoryStar,
   handlePutRepositoryDependencies,
@@ -84,6 +93,18 @@ const recipeComponent = {
   ],
   unit: "box",
 } satisfies Awaited<ReturnType<RecipeComponentWriteRepository["listByRepositoryId"]>>[number];
+
+const inventoryItem: CloudInventoryItem = {
+  category: "grain",
+  createdAt: "2026-07-06T00:00:00.000Z",
+  hazardous: false,
+  id: "inventory_rice",
+  name: "Rice",
+  quantity: 2,
+  unit: "go",
+  updatedAt: "2026-07-06T00:00:00.000Z",
+  userId: "profile_test",
+};
 
 async function parseJson(response: Response) {
   return response.json() as Promise<unknown>;
@@ -342,6 +363,326 @@ describe("repository API handlers", () => {
       error: {
         code: "internal_error",
         message: "Failed to load dependencies.",
+      },
+    });
+    expect(response.status).toBe(500);
+  });
+
+  it("generates SeasoningBOM JSON for readable repositories without inventory audit details", async () => {
+    const publicRepository = {
+      ...privateRepository,
+      id: "repo_public",
+      slug: "public-curry",
+      visibility: "public",
+    } satisfies CloudRecipeRepository;
+    const response = await handleGetRepositoryBom(
+      new Request("https://example.test/api/repos/test-user/public-curry/bom"),
+      "test-user",
+      "public-curry",
+      env,
+      {
+        recipeComponents: createRecipeComponentRepository([
+          { ...recipeComponent, recipeId: "repo_public" },
+        ]),
+        recipeRepositories: createRecipeRepository([publicRepository]),
+      },
+    );
+
+    await expect(parseJson(response)).resolves.toEqual({
+      audit: {
+        issues: [
+          expect.objectContaining({
+            category: "allergen",
+            componentName: "curry-roux",
+          }),
+          expect.objectContaining({
+            category: "transitive-dependency",
+            componentName: "curry-roux",
+          }),
+        ],
+      },
+      bomFormat: "SeasoningBOM",
+      components: [
+        expect.objectContaining({
+          dependencies: [
+            {
+              allergens: ["milk"],
+              dependencyType: "transitive",
+              name: "milk powder",
+              notes: "Often hidden in roux blocks.",
+            },
+          ],
+          name: "curry-roux",
+        }),
+      ],
+      generatedAt: expect.any(String),
+      repository: expect.objectContaining({
+        owner: "test-user",
+        visibility: "public",
+      }),
+      specVersion: "0.1.0",
+    });
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-disposition")).toBe(
+      'attachment; filename="public-curry-seasoningbom.json"',
+    );
+  });
+
+  it("returns public security alerts without private inventory audit issues", async () => {
+    const publicRepository = {
+      ...privateRepository,
+      id: "repo_public",
+      slug: "public-curry",
+      visibility: "public",
+    } satisfies CloudRecipeRepository;
+    const response = await handleGetRepositorySecurity(
+      new Request("https://example.test/api/repos/test-user/public-curry/security"),
+      "test-user",
+      "public-curry",
+      env,
+      {
+        recipeComponents: createRecipeComponentRepository([
+          { ...recipeComponent, recipeId: "repo_public" },
+        ]),
+        recipeRepositories: createRecipeRepository([publicRepository]),
+      },
+    );
+
+    await expect(parseJson(response)).resolves.toEqual({
+      generatedAt: expect.any(String),
+      recipeAlerts: [
+        expect.objectContaining({
+          category: "allergen",
+          componentName: "curry-roux",
+        }),
+        expect.objectContaining({
+          category: "transitive-dependency",
+          componentName: "curry-roux",
+        }),
+      ],
+      repository: expect.objectContaining({
+        id: "repo_public",
+        slug: "public-curry",
+      }),
+      summary: {
+        critical: 0,
+        high: 0,
+        low: 0,
+        medium: 2,
+        totalIssues: 2,
+      },
+    });
+    expect(response.status).toBe(200);
+  });
+
+  it("returns a JSON error when SeasoningBOM component loading fails", async () => {
+    const publicRepository = {
+      ...privateRepository,
+      id: "repo_public",
+      slug: "public-curry",
+      visibility: "public",
+    } satisfies CloudRecipeRepository;
+    const response = await handleGetRepositoryBom(
+      new Request("https://example.test/api/repos/test-user/public-curry/bom"),
+      "test-user",
+      "public-curry",
+      env,
+      {
+        recipeComponents: {
+          async listByRepositoryId() {
+            throw new Error("D1 unavailable");
+          },
+          async replaceByRepositoryId() {
+            return [];
+          },
+        },
+        recipeRepositories: createRecipeRepository([publicRepository]),
+      },
+    );
+
+    await expect(parseJson(response)).resolves.toEqual({
+      error: {
+        code: "internal_error",
+        message: "Failed to generate SeasoningBOM.",
+      },
+    });
+    expect(response.status).toBe(500);
+  });
+
+  it("returns a JSON error when security alert loading fails", async () => {
+    const publicRepository = {
+      ...privateRepository,
+      id: "repo_public",
+      slug: "public-curry",
+      visibility: "public",
+    } satisfies CloudRecipeRepository;
+    const response = await handleGetRepositorySecurity(
+      new Request("https://example.test/api/repos/test-user/public-curry/security"),
+      "test-user",
+      "public-curry",
+      env,
+      {
+        recipeComponents: {
+          async listByRepositoryId() {
+            throw new Error("D1 unavailable");
+          },
+          async replaceByRepositoryId() {
+            return [];
+          },
+        },
+        recipeRepositories: createRecipeRepository([publicRepository]),
+      },
+    );
+
+    await expect(parseJson(response)).resolves.toEqual({
+      error: {
+        code: "internal_error",
+        message: "Failed to load security alerts.",
+      },
+    });
+    expect(response.status).toBe(500);
+  });
+
+  it("runs inventory audit against the authenticated user's private inventory", async () => {
+    const publicRepository = {
+      ...privateRepository,
+      id: "repo_public",
+      slug: "public-curry",
+      visibility: "public",
+    } satisfies CloudRecipeRepository;
+    const riceComponent = {
+      ...recipeComponent,
+      allergens: [],
+      ingredientName: "Rice",
+      quantity: 3,
+      recipeId: "repo_public",
+      transitiveDependencies: [],
+      unit: "go",
+    } satisfies Awaited<ReturnType<RecipeComponentWriteRepository["listByRepositoryId"]>>[number];
+    const response = await handlePostRepositoryAudit("test-user", "public-curry", owner, env, {
+      inventoryItems: createInventoryRepository([
+        inventoryItem,
+        {
+          ...inventoryItem,
+          id: "inventory_other",
+          quantity: 99,
+          userId: "profile_other",
+        },
+      ]),
+      now: () => new Date("2026-07-06T02:03:04.000Z"),
+      recipeComponents: createRecipeComponentRepository([riceComponent]),
+      recipeRepositories: createRecipeRepository([publicRepository]),
+    });
+
+    await expect(parseJson(response)).resolves.toEqual({
+      inventoryAudit: {
+        generatedAt: "2026-07-06T02:03:04.000Z",
+        issues: [
+          expect.objectContaining({
+            category: "quantity",
+            componentName: "Rice",
+            message: "Rice@3go is insufficient",
+          }),
+        ],
+        recipeId: "repo_public",
+        summary: {
+          critical: 0,
+          high: 1,
+          low: 0,
+          medium: 0,
+          totalIssues: 1,
+        },
+      },
+      repository: expect.objectContaining({
+        id: "repo_public",
+        slug: "public-curry",
+      }),
+    });
+    expect(response.status).toBe(200);
+  });
+
+  it("runs inventory audit for the private repository owner", async () => {
+    const response = await handlePostRepositoryAudit("test-user", "private-curry", owner, env, {
+      inventoryItems: createInventoryRepository([inventoryItem]),
+      recipeComponents: createRecipeComponentRepository([recipeComponent]),
+      recipeRepositories: createRecipeRepository([privateRepository]),
+    });
+
+    await expect(parseJson(response)).resolves.toEqual({
+      inventoryAudit: expect.objectContaining({
+        recipeId: "repo_private",
+      }),
+      repository: expect.objectContaining({
+        id: "repo_private",
+        visibility: "private",
+      }),
+    });
+    expect(response.status).toBe(200);
+  });
+
+  it("does not run inventory audit for non-readable private repositories", async () => {
+    const response = await handlePostRepositoryAudit(
+      "test-user",
+      "private-curry",
+      { ...owner, id: "profile_other" },
+      env,
+      {
+        inventoryItems: createInventoryRepository([inventoryItem]),
+        recipeComponents: createRecipeComponentRepository([recipeComponent]),
+        recipeRepositories: createRecipeRepository([privateRepository]),
+      },
+    );
+
+    await expect(parseJson(response)).resolves.toEqual({
+      error: {
+        code: "not_found",
+        message: "Repository not found.",
+      },
+    });
+    expect(response.status).toBe(404);
+  });
+
+  it("returns a JSON error when inventory audit loading fails", async () => {
+    const publicRepository = {
+      ...privateRepository,
+      id: "repo_public",
+      slug: "public-curry",
+      visibility: "public",
+    } satisfies CloudRecipeRepository;
+    const response = await handlePostRepositoryAudit("test-user", "public-curry", owner, env, {
+      inventoryItems: {
+        async create(input) {
+          return {
+            ...inventoryItem,
+            category: input.category,
+            createdAt: input.now,
+            id: input.id,
+            name: input.name,
+            quantity: input.quantity,
+            unit: input.unit,
+            updatedAt: input.now,
+            userId: input.userId,
+          };
+        },
+        async deleteForUser() {},
+        async findByIdForUser() {
+          return null;
+        },
+        async listByUserId() {
+          throw new Error("D1 unavailable");
+        },
+        async update() {
+          return null;
+        },
+      },
+      recipeComponents: createRecipeComponentRepository([recipeComponent]),
+      recipeRepositories: createRecipeRepository([publicRepository]),
+    });
+
+    await expect(parseJson(response)).resolves.toEqual({
+      error: {
+        code: "internal_error",
+        message: "Failed to run inventory audit.",
       },
     });
     expect(response.status).toBe(500);
@@ -1537,6 +1878,65 @@ function createRecipeComponentRepository(
       }));
       components.push(...savedComponents);
       return savedComponents;
+    },
+  };
+}
+
+function createInventoryRepository(initialItems: CloudInventoryItem[]): InventoryItemRepository {
+  const items = [...initialItems];
+
+  return {
+    async create(input: CreateInventoryItemInput) {
+      const item: CloudInventoryItem = {
+        bestBeforeDate: input.bestBeforeDate,
+        category: input.category,
+        createdAt: input.now,
+        hazardous: input.hazardous ?? false,
+        id: input.id,
+        name: input.name,
+        quantity: input.quantity,
+        unit: input.unit,
+        updatedAt: input.now,
+        useByDate: input.useByDate,
+        userId: input.userId,
+      };
+      items.push(item);
+      return item;
+    },
+    async deleteForUser(userId, id) {
+      const index = items.findIndex((item) => item.userId === userId && item.id === id);
+      if (index >= 0) {
+        items.splice(index, 1);
+      }
+    },
+    async findByIdForUser(userId, id) {
+      return items.find((item) => item.userId === userId && item.id === id) ?? null;
+    },
+    async listByUserId(userId) {
+      return items.filter((item) => item.userId === userId);
+    },
+    async update(input: UpdateInventoryItemInput) {
+      const item: CloudInventoryItem = {
+        bestBeforeDate: input.bestBeforeDate,
+        category: input.category,
+        createdAt: input.createdAt,
+        hazardous: input.hazardous,
+        id: input.id,
+        name: input.name,
+        quantity: input.quantity,
+        unit: input.unit,
+        updatedAt: input.now,
+        useByDate: input.useByDate,
+        userId: input.userId,
+      };
+      const index = items.findIndex(
+        (storedItem) => storedItem.id === input.id && storedItem.userId === input.userId,
+      );
+      if (index < 0) {
+        return null;
+      }
+      items[index] = item;
+      return item;
     },
   };
 }

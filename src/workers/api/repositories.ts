@@ -1,16 +1,29 @@
 import {
   type Allergen,
+  type AuditSummary,
   allergens,
   type DependencyType,
+  defaultSettings,
   dependencyTypes,
+  generateRecipeAlerts,
+  generateSeasoningBOM,
   type IngredientDependency,
   type IngredientDependencyType,
+  type InventoryAuditResult,
+  type RecipeAlert,
   type RecipeComponent,
   type RecipeRepositoryEntity,
   repositoryVisibilities,
+  runInventoryAudit,
+  type SeasoningBOM,
+  summarizeIssues,
   type Unit,
   units,
 } from "../../domain";
+import {
+  D1InventoryRepository,
+  type InventoryItemRepository,
+} from "../../repositories/cloudflare-d1/D1InventoryRepository";
 import {
   D1RecipeComponentRepository,
   type RecipeComponentWriteRepository,
@@ -34,6 +47,7 @@ export type RepositoryRouteOptions = ClerkAuthenticationOptions &
   ProfileRouteOptions & {
     createRecipeComponentId?: () => string;
     createRepositoryId?: () => string;
+    inventoryItems?: InventoryItemRepository;
     now?: () => Date;
     recipeComponents?: RecipeComponentWriteRepository;
     recipeRepositories?: RecipeRepositoryMetadataRepository;
@@ -51,6 +65,18 @@ type RepositoryListResponseBody = {
 type RepositoryDependenciesResponseBody = {
   repository: SerializedRepository;
   components: SerializedRecipeComponent[];
+};
+
+type RepositorySecurityResponseBody = {
+  generatedAt: string;
+  recipeAlerts: RecipeAlert[];
+  repository: SerializedRepository;
+  summary: AuditSummary;
+};
+
+type RepositoryAuditResponseBody = {
+  inventoryAudit: InventoryAuditResult;
+  repository: SerializedRepository;
 };
 
 type RepositoryStarResponseBody = {
@@ -201,6 +227,135 @@ export async function handleGetRepositoryDependencies(
     } satisfies RepositoryDependenciesResponseBody);
   } catch {
     return serverError("Failed to load dependencies.");
+  }
+}
+
+export async function handleGetRepositoryBom(
+  request: Request,
+  ownerHandle: string,
+  slug: string,
+  env: WorkerEnv,
+  options: RepositoryRouteOptions = {},
+): Promise<Response> {
+  const repositories = getRecipeRepository(env, options);
+  const components = getRecipeComponentRepository(env, options);
+  const repositoryResult = await findReadableRepository(
+    request,
+    repositories,
+    ownerHandle,
+    slug,
+    env,
+    options,
+    "Failed to generate SeasoningBOM.",
+  );
+  if (!repositoryResult.ok) {
+    return repositoryResult.response;
+  }
+
+  try {
+    const recipeComponents = await components.listByRepositoryId(repositoryResult.repository.id);
+    const recipeAlerts = generateRecipeAlerts({
+      components: recipeComponents,
+      recipe: repositoryResult.repository,
+    });
+    const bom = generateSeasoningBOM({
+      components: recipeComponents,
+      generatedAt: options.now?.() ?? new Date(),
+      recipe: repositoryResult.repository,
+      recipeAlerts,
+    });
+
+    return jsonResponse(bom satisfies SeasoningBOM, {
+      headers: {
+        "content-disposition": `attachment; filename="${repositoryResult.repository.slug}-seasoningbom.json"`,
+      },
+    });
+  } catch {
+    return serverError("Failed to generate SeasoningBOM.");
+  }
+}
+
+export async function handleGetRepositorySecurity(
+  request: Request,
+  ownerHandle: string,
+  slug: string,
+  env: WorkerEnv,
+  options: RepositoryRouteOptions = {},
+): Promise<Response> {
+  const repositories = getRecipeRepository(env, options);
+  const components = getRecipeComponentRepository(env, options);
+  const repositoryResult = await findReadableRepository(
+    request,
+    repositories,
+    ownerHandle,
+    slug,
+    env,
+    options,
+    "Failed to load security alerts.",
+  );
+  if (!repositoryResult.ok) {
+    return repositoryResult.response;
+  }
+
+  try {
+    const recipeComponents = await components.listByRepositoryId(repositoryResult.repository.id);
+    const recipeAlerts = generateRecipeAlerts({
+      components: recipeComponents,
+      recipe: repositoryResult.repository,
+    });
+    const generatedAt = (options.now?.() ?? new Date()).toISOString();
+
+    return jsonResponse({
+      generatedAt,
+      recipeAlerts,
+      repository: serializeRepository(repositoryResult.repository),
+      summary: summarizeIssues(recipeAlerts),
+    } satisfies RepositorySecurityResponseBody);
+  } catch {
+    return serverError("Failed to load security alerts.");
+  }
+}
+
+export async function handlePostRepositoryAudit(
+  ownerHandle: string,
+  slug: string,
+  owner: UserProfile,
+  env: WorkerEnv,
+  options: RepositoryRouteOptions = {},
+): Promise<Response> {
+  const repositories = getRecipeRepository(env, options);
+  const components = getRecipeComponentRepository(env, options);
+  const inventory = getInventoryRepository(env, options);
+  const repositoryResult = await findReadableRepositoryForProfile(
+    repositories,
+    ownerHandle,
+    slug,
+    owner,
+    "Failed to run inventory audit.",
+  );
+  if (!repositoryResult.ok) {
+    return repositoryResult.response;
+  }
+
+  try {
+    const [recipeComponents, inventoryItems] = await Promise.all([
+      components.listByRepositoryId(repositoryResult.repository.id),
+      inventory.listByUserId(owner.id),
+    ]);
+    const inventoryAudit = runInventoryAudit({
+      components: recipeComponents,
+      inventoryItems,
+      now: options.now?.() ?? new Date(),
+      recipe: repositoryResult.repository,
+      settings: defaultSettings,
+    });
+
+    return jsonResponse({
+      inventoryAudit,
+      repository: serializeRepository(repositoryResult.repository),
+    } satisfies RepositoryAuditResponseBody);
+  } catch {
+    return serverError("Failed to run inventory audit.");
   }
 }
 
@@ -445,6 +600,31 @@ async function findReadableRepository(
   }
 
   if (viewer.profile?.id !== repository.ownerUserId) {
+    return { ok: false, response: repositoryNotFound() };
+  }
+
+  return { ok: true, repository };
+}
+
+async function findReadableRepositoryForProfile(
+  repositories: RecipeRepositoryMetadataRepository,
+  ownerHandle: string,
+  slug: string,
+  viewer: UserProfile,
+  failureMessage: string,
+): Promise<{ ok: true; repository: CloudRecipeRepository } | { ok: false; response: Response }> {
+  let repository: CloudRecipeRepository | null;
+  try {
+    repository = await repositories.findByOwnerAndSlug(ownerHandle, slug);
+  } catch {
+    return { ok: false, response: serverError(failureMessage) };
+  }
+
+  if (!repository) {
+    return { ok: false, response: repositoryNotFound() };
+  }
+
+  if (repository.visibility === "private" && repository.ownerUserId !== viewer.id) {
     return { ok: false, response: repositoryNotFound() };
   }
 
@@ -1173,6 +1353,13 @@ function getRecipeComponentRepository(
   options: RepositoryRouteOptions,
 ): RecipeComponentWriteRepository {
   return options.recipeComponents ?? new D1RecipeComponentRepository(env.DB);
+}
+
+function getInventoryRepository(
+  env: WorkerEnv,
+  options: RepositoryRouteOptions,
+): InventoryItemRepository {
+  return options.inventoryItems ?? new D1InventoryRepository(env.DB);
 }
 
 async function readRepositoryDependenciesBody(

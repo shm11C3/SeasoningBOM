@@ -27,10 +27,13 @@ import {
   handleDeleteRepository,
   handleDeleteRepositoryStar,
   handleGetRepository,
+  handleGetRepositoryBom,
   handleGetRepositoryDependencies,
+  handleGetRepositorySecurity,
   handleListRepositories,
   handlePatchRepository,
   handlePostRepository,
+  handlePostRepositoryAudit,
   handlePostRepositoryFork,
   handlePostRepositoryStar,
   handlePutRepositoryDependencies,
@@ -80,6 +83,18 @@ const coreRoutes = {
     allowedMethods: ["GET", "PUT"],
     path: "/api/repos/:owner/:repo/dependencies",
   },
+  repositoryBom: {
+    allowedMethods: ["GET"],
+    path: "/api/repos/:owner/:repo/bom",
+  },
+  repositorySecurity: {
+    allowedMethods: ["GET"],
+    path: "/api/repos/:owner/:repo/security",
+  },
+  repositoryAudit: {
+    allowedMethods: ["POST"],
+    path: "/api/repos/:owner/:repo/audit",
+  },
   repositoryCookingLogs: {
     allowedMethods: ["GET", "POST"],
     path: "/api/repos/:owner/:repo/cooking-logs",
@@ -96,23 +111,7 @@ const coreRoutes = {
   inventoryItem: { allowedMethods: ["PATCH", "DELETE"], path: "/api/inventory/:id" },
 } as const satisfies Record<string, HeadMethodRoute>;
 
-const repoScaffoldRoutes: ScaffoldRoute[] = [
-  {
-    message: "Recipe repository API is not implemented yet.",
-    path: "/api/repos/:owner/:repo/bom",
-    publicMethods: ["GET"],
-  },
-  {
-    message: "Recipe repository API is not implemented yet.",
-    path: "/api/repos/:owner/:repo/security",
-    publicMethods: ["GET"],
-  },
-  {
-    message: "Recipe repository API is not implemented yet.",
-    path: "/api/repos/:owner/:repo/audit",
-    protectedMethods: ["POST"],
-  },
-];
+const repoScaffoldRoutes: ScaffoldRoute[] = [];
 
 const profileScaffoldRoutes: ScaffoldRoute[] = [
   {
@@ -328,6 +327,82 @@ export function createWorkerApiApp(options: WorkerApiOptions = {}): Hono<WorkerA
   });
   app.all(coreRoutes.repositoryDependencies.path, () =>
     methodNotAllowed(coreRoutes.repositoryDependencies.allowedMethods),
+  );
+
+  app.get(coreRoutes.repositoryBom.path, (context) => {
+    const params = getRepositoryParams(
+      context.req.param("owner"),
+      context.req.param("repo"),
+      context.req.raw,
+    );
+    if (!params.ok) {
+      return params.response;
+    }
+
+    return handleGetRepositoryBom(
+      context.req.raw,
+      params.ownerHandle,
+      params.slug,
+      context.env,
+      options,
+    );
+  });
+  app.all(coreRoutes.repositoryBom.path, () =>
+    methodNotAllowed(coreRoutes.repositoryBom.allowedMethods),
+  );
+
+  app.get(coreRoutes.repositorySecurity.path, (context) => {
+    const params = getRepositoryParams(
+      context.req.param("owner"),
+      context.req.param("repo"),
+      context.req.raw,
+    );
+    if (!params.ok) {
+      return params.response;
+    }
+
+    return handleGetRepositorySecurity(
+      context.req.raw,
+      params.ownerHandle,
+      params.slug,
+      context.env,
+      options,
+    );
+  });
+  app.all(coreRoutes.repositorySecurity.path, () =>
+    methodNotAllowed(coreRoutes.repositorySecurity.allowedMethods),
+  );
+
+  app.post(coreRoutes.repositoryAudit.path, async (context) => {
+    const params = getRepositoryParams(
+      context.req.param("owner"),
+      context.req.param("repo"),
+      context.req.raw,
+    );
+    if (!params.ok) {
+      return params.response;
+    }
+
+    const profileResult = await requireAuthenticatedProfile(
+      context.req.raw,
+      context.env,
+      "POST",
+      options,
+    );
+    if (!profileResult.ok) {
+      return profileResult.response;
+    }
+
+    return handlePostRepositoryAudit(
+      params.ownerHandle,
+      params.slug,
+      profileResult.profile,
+      context.env,
+      options,
+    );
+  });
+  app.all(coreRoutes.repositoryAudit.path, () =>
+    methodNotAllowed(coreRoutes.repositoryAudit.allowedMethods),
   );
 
   app.get(coreRoutes.repositoryCookingLogs.path, (context) => {
