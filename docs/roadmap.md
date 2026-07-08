@@ -124,7 +124,7 @@ Current implementation checkpoint:
 - Cooking log creation can link explicit owned `usedInventoryItemIds` through `cooking_log_inventory_items` and records one private `eol_rescued` contribution when any linked item is `deprecated` at `cooked_at`.
 - `GET /api/users/:username/profile`, `GET /api/users/:username/contributions`, and `GET /api/users/:username/contributions/:date` are wired to D1 `user_profiles` and `contribution_events` through `D1ContributionRepository`.
 - Profile contribution reads expose annual graph counts for `summary_only` users, hide `private` contribution graphs from third parties, and expose day-level event details only to the owner or for `public` profiles.
-- Protected endpoints reject missing or invalid sessions before reaching protected handlers. Contribution CRUD endpoints are still not implemented.
+- Protected endpoints reject missing or invalid sessions before reaching protected handlers. Manual Contribution CRUD endpoints are intentionally out of the Cloud D1 MVP; contribution events are recorded by source actions and exposed through profile read endpoints.
 
 Exit criteria:
 

@@ -814,6 +814,8 @@ Contribution visibility は以下の通り扱う。
 - `summary_only`: graph/count は第三者にも表示し、day-level event details は本人だけに表示する。
 - `private`: graph/count と day-level event details を本人だけに表示する。第三者には profile contribution endpoint を not found として返す。
 
+MVP では Contribution event の手動作成・編集・削除 API は提供しない。Contribution は Repository 作成/更新、Fork、Cooking Log、EOL Rescue などの source action と同じ D1 batch で記録し、profile API から読み取る。
+
 ## 17. 受け入れ条件
 
 ### 17.1 Repository 共有
