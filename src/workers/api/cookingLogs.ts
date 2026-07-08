@@ -443,7 +443,7 @@ async function resolveUsedInventoryItems(
 
   try {
     const inventory = getInventoryRepository(env, options);
-    const ownedItems = await inventory.listByUserId(userId);
+    const ownedItems = await inventory.listByUserIdAndIds(userId, usedInventoryItemIds);
     const ownedItemsById = new Map(ownedItems.map((item) => [item.id, item]));
     const usedItems = usedInventoryItemIds
       .map((id) => ownedItemsById.get(id))

@@ -157,7 +157,7 @@ describe("D1CookingLogRepository", () => {
       repositoryOwnerHandle: "owner",
       repositorySlug: "curry-rice",
       result: "cooked",
-      usedInventoryItemIds: ["inventory_milk"],
+      usedInventoryItemIds: ["inventory_milk", "inventory_milk"],
       userId: "profile_owner",
     });
 

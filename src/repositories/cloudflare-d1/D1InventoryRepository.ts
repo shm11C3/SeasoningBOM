@@ -50,6 +50,7 @@ export type InventoryItemRepository = {
   create(input: CreateInventoryItemInput): Promise<CloudInventoryItem>;
   deleteForUser(userId: string, id: string): Promise<void>;
   findByIdForUser(userId: string, id: string): Promise<CloudInventoryItem | null>;
+  listByUserIdAndIds(userId: string, ids: string[]): Promise<CloudInventoryItem[]>;
   listByUserId(userId: string): Promise<CloudInventoryItem[]>;
   update(input: UpdateInventoryItemInput): Promise<CloudInventoryItem | null>;
 };
@@ -90,6 +91,23 @@ export class D1InventoryRepository implements InventoryItemRepository {
       .first<InventoryItemRow>();
 
     return row ? mapInventoryItemRow(row) : null;
+  }
+
+  async listByUserIdAndIds(userId: string, ids: string[]): Promise<CloudInventoryItem[]> {
+    const uniqueIds = [...new Set(ids)];
+    if (uniqueIds.length === 0) {
+      return [];
+    }
+
+    const placeholders = uniqueIds.map(() => "?").join(", ");
+    const result = await this.db
+      .prepare(`${inventorySelect}
+         WHERE user_id = ? AND id IN (${placeholders})
+         ORDER BY name COLLATE NOCASE ASC, updated_at DESC`)
+      .bind(userId, ...uniqueIds)
+      .all<InventoryItemRow>();
+
+    return (result.results ?? []).map(mapInventoryItemRow);
   }
 
   async create(input: CreateInventoryItemInput): Promise<CloudInventoryItem> {

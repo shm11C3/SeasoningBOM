@@ -121,7 +121,7 @@ export class D1CookingLogRepository implements CookingLogRepository {
       repositorySlug: input.repositorySlug,
       result: input.result,
     };
-    const usedInventoryItemIds = input.usedInventoryItemIds ?? [];
+    const usedInventoryItemIds = [...new Set(input.usedInventoryItemIds ?? [])];
     const eolRescueMetadata = input.eolRescueContribution
       ? {
           cookingLogId: input.cookingLogId,

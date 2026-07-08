@@ -503,6 +503,9 @@ describe("inventory API handlers", () => {
     const response = await handleListInventory(owner, env, {
       inventoryItems: {
         ...createInventoryRepository([]),
+        async listByUserIdAndIds() {
+          throw new Error("D1 unavailable");
+        },
         async listByUserId() {
           throw new Error("D1 unavailable");
         },
@@ -586,6 +589,10 @@ function createInventoryRepository(initialItems: CloudInventoryItem[]): Inventor
     },
     async findByIdForUser(userId, id) {
       return items.find((item) => item.userId === userId && item.id === id) ?? null;
+    },
+    async listByUserIdAndIds(userId, ids) {
+      const idSet = new Set(ids);
+      return items.filter((item) => item.userId === userId && idSet.has(item.id));
     },
     async listByUserId(userId) {
       return items.filter((item) => item.userId === userId);
