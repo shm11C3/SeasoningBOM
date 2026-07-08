@@ -111,6 +111,8 @@ Current implementation checkpoint:
 - Public repositories can be listed and fetched without login. Unlisted repositories can be fetched by exact URL but are excluded from listings. Private repository metadata is owner-only.
 - `GET /api/repos/:owner/:repo/dependencies` and `PUT /api/repos/:owner/:repo/dependencies` are wired to D1 `recipe_components` and `ingredient_dependencies` through `D1RecipeComponentRepository`.
 - Repository dependency reads use the same public / unlisted / private read authorization as repository metadata. Repository dependency replacement is owner-only and requires a bearer token.
+- `GET /api/repos/:owner/:repo/bom` generates a SeasoningBOM JSON snapshot on demand from repository content and public Recipe Alerts only.
+- `GET /api/repos/:owner/:repo/security` returns public Recipe Alerts only. `POST /api/repos/:owner/:repo/audit` returns the authenticated viewer's private Inventory Audit using MVP default audit settings.
 - `POST /api/repos/:owner/:repo/star` and `DELETE /api/repos/:owner/:repo/star` are wired to D1 `repository_stars` through `D1RepositoryStarRepository`.
 - `POST /api/repos/:owner/:repo/fork` creates a new D1 `recipe_repositories` row for the authenticated user and records the source repository in `source_repository_id`.
 - `GET /api/inventory`, `POST /api/inventory`, `PATCH /api/inventory/:id`, and `DELETE /api/inventory/:id` are wired to D1 `inventory_items` through `D1InventoryRepository`.
