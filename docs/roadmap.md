@@ -104,7 +104,7 @@ Deliverables:
 Current implementation checkpoint:
 
 - `migrations/0001_cloud_mvp.sql` defines the initial Cloud D1 MVP tables and indexes.
-- `src/workers/api/` contains the Worker fetch entrypoint, health route, planned API route scaffold, and JSON error responses.
+- `src/workers/api/` contains the Worker fetch entrypoint, health route, concrete API route registry, and JSON error responses.
 - `src/workers/auth/clerk.ts` verifies Clerk session tokens with `@clerk/backend`, `CLERK_JWT_KEY`, and `CLERK_AUTHORIZED_PARTIES`, requiring a user subject, session id, and allowed `azp`.
 - `GET /api/me` and `POST /api/me/profile` are wired to D1 `user_profiles` through `D1UserProfileRepository`.
 - `GET /api/repos`, `GET /api/repos/:owner/:repo`, `POST /api/repos`, `PATCH /api/repos/:owner/:repo`, and `DELETE /api/repos/:owner/:repo` are wired to D1 `recipe_repositories` metadata through `D1RecipeRepository`.
@@ -119,7 +119,9 @@ Current implementation checkpoint:
 - Inventory endpoints require a bootstrapped Clerk-backed profile and are scoped to the authenticated user. Inventory mutations require bearer tokens; `__session` cookies are limited to protected non-mutating reads.
 - `GET /api/repos/:owner/:repo/cooking-logs` and `POST /api/repos/:owner/:repo/cooking-logs` are wired to D1 `cooking_logs` through `D1CookingLogRepository`.
 - Creating a cooking log also creates a `cooking_logged` contribution event in the same D1 batch. Public cooking-log reads expose only logs from users with `contribution_visibility = "public"` plus the viewer's own logs.
-- Protected endpoints reject missing or invalid sessions before reaching protected handlers. Profile contribution reads, non-cooking contribution automation / contribution CRUD endpoints, and granular component/dependency CRUD endpoints are still not implemented.
+- `GET /api/users/:username/profile`, `GET /api/users/:username/contributions`, and `GET /api/users/:username/contributions/:date` are wired to D1 `user_profiles` and `contribution_events` through `D1ContributionRepository`.
+- Profile contribution reads expose annual graph counts for `summary_only` users, hide `private` contribution graphs from third parties, and expose day-level event details only to the owner or for `public` profiles.
+- Protected endpoints reject missing or invalid sessions before reaching protected handlers. Non-cooking contribution automation / contribution CRUD endpoints, and granular component/dependency CRUD endpoints are still not implemented.
 
 Exit criteria:
 

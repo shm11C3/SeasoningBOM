@@ -4,7 +4,6 @@ export type ApiErrorCode =
   | "method_not_allowed"
   | "not_authenticated"
   | "not_found"
-  | "not_implemented"
   | "profile_already_exists"
   | "profile_not_initialized"
   | "repository_already_exists"
@@ -40,6 +39,10 @@ export function repositoryNotFound(): Response {
   return errorResponse(404, "not_found", "Repository not found.");
 }
 
+export function profileNotFound(): Response {
+  return errorResponse(404, "not_found", "Profile not found.");
+}
+
 export function methodNotAllowed(allowedMethods: readonly string[]): Response {
   return errorResponse(405, "method_not_allowed", "This HTTP method is not allowed.", {
     Allow: allowedMethods.join(", "),
@@ -48,10 +51,6 @@ export function methodNotAllowed(allowedMethods: readonly string[]): Response {
 
 export function unauthorized(message = "Sign in with Clerk to access this endpoint."): Response {
   return errorResponse(401, "not_authenticated", message);
-}
-
-export function notImplemented(message: string): Response {
-  return errorResponse(501, "not_implemented", message);
 }
 
 export function authMisconfigured(): Response {

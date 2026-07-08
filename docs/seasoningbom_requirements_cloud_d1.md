@@ -769,6 +769,18 @@ GET /api/users/:username/contributions/:date
 GET /api/users/:username/profile
 ```
 
+`GET /api/users/:username/profile` は stable User Handle で公開プロフィールを返す。
+
+`GET /api/users/:username/contributions` は `from` / `to` の日付範囲を `YYYY-MM-DD` で受け取り、指定がない場合は当日を含む直近 365 日を返す。範囲は最大 366 日以内に制限する。日ごとの `contribution_count` を合計し、Contribution 強度 level を返す。
+
+`GET /api/users/:username/contributions/:date` はその日の合計件数と、閲覧可能な場合のみ event details を返す。
+
+Contribution visibility は以下の通り扱う。
+
+- `public`: graph/count と day-level event details を第三者にも表示する。
+- `summary_only`: graph/count は第三者にも表示し、day-level event details は本人だけに表示する。
+- `private`: graph/count と day-level event details を本人だけに表示する。第三者には profile contribution endpoint を not found として返す。
+
 ## 17. 受け入れ条件
 
 ### 17.1 Repository 共有

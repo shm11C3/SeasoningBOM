@@ -151,6 +151,9 @@ Production rules:
 - Creating a cooking log also inserts a `cooking_logged` row into `contribution_events` in the same D1 batch.
 - Cooking log reads follow repository visibility first, then log-author privacy: public visitors only see logs from users with `contribution_visibility = "public"`; signed-in users can additionally see their own logs.
 - Cooking log mutations require Authorization bearer tokens. Clerk `__session` cookies are not accepted for cooking-log writes.
+- Profile contribution reads are handled by `D1ContributionRepository` and exposed through `GET /api/users/:username/profile`, `GET /api/users/:username/contributions`, and `GET /api/users/:username/contributions/:date`.
+- Contribution graph counts are visible for `public` and `summary_only` profiles; `private` contribution graphs are owner-only.
+- Contribution day event details are visible to the owner and to third parties only when the profile is `public`; `summary_only` third-party reads return counts without events.
 - Recipe Alert queries may use Repository content only.
 - Inventory Audit queries may combine Repository content with only the viewer's Inventory.
 - D1 bindings and SQL stay inside Workers / repository implementation.
