@@ -84,7 +84,7 @@ function errorResponse(
   status: number,
   code: ApiErrorCode,
   message: string,
-  headers: HeadersInit = {},
+  headers: ResponseInit["headers"] = {},
 ): Response {
   return jsonResponse(
     {
