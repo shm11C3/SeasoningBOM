@@ -70,6 +70,45 @@ describe("D1InventoryRepository", () => {
     await expect(inventory.findByIdForUser("profile_other", "inventory_rice")).resolves.toBeNull();
   });
 
+  it("lists only requested inventory IDs for the owner", async () => {
+    const rice = await inventory.create({
+      category: "grain",
+      id: "inventory_rice",
+      name: "Rice",
+      now: "2026-07-06T01:02:03.000Z",
+      quantity: 2,
+      unit: "go",
+      userId: "profile_test",
+    });
+    await inventory.create({
+      category: "dairy",
+      id: "inventory_milk",
+      name: "Milk",
+      now: "2026-07-06T01:02:03.000Z",
+      quantity: 1,
+      unit: "l",
+      userId: "profile_test",
+    });
+    await inventory.create({
+      category: "grain",
+      id: "inventory_other_rice",
+      name: "Rice",
+      now: "2026-07-06T01:02:03.000Z",
+      quantity: 9,
+      unit: "go",
+      userId: "profile_other",
+    });
+
+    await expect(
+      inventory.listByUserIdAndIds("profile_test", [
+        "inventory_rice",
+        "inventory_other_rice",
+        "inventory_rice",
+      ]),
+    ).resolves.toEqual([rice]);
+    await expect(inventory.listByUserIdAndIds("profile_test", [])).resolves.toEqual([]);
+  });
+
   it("updates and deletes inventory items for the owner only", async () => {
     const created = await inventory.create({
       category: "dairy",
