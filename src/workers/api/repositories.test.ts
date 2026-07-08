@@ -1493,6 +1493,44 @@ describe("repository API handlers", () => {
     ]);
   });
 
+  it("keeps private repository creation contribution details private", async () => {
+    const recipeRepositories = createRecipeRepository([]);
+    const response = await handlePostRepository(
+      new Request("https://example.test/api/repos", {
+        body: JSON.stringify({
+          name: "Secret Sauce",
+          slug: "secret-sauce",
+          visibility: "private",
+        }),
+        method: "POST",
+      }),
+      owner,
+      env,
+      {
+        createContributionEventId: () => "contribution_private_create",
+        createRepositoryId: () => "repo_private_new",
+        now: () => new Date("2026-07-06T01:02:03.000Z"),
+        recipeRepositories,
+      },
+    );
+
+    await expect(parseJson(response)).resolves.toEqual({
+      repository: expect.objectContaining({
+        id: "repo_private_new",
+        visibility: "private",
+      }),
+    });
+    expect(response.status).toBe(201);
+    expect(recipeRepositories.listContributionEvents()).toEqual([
+      expect.objectContaining({
+        eventType: "recipe_created",
+        id: "contribution_private_create",
+        repositoryId: "repo_private_new",
+        visibility: "private",
+      }),
+    ]);
+  });
+
   it("updates a repository and records a contribution event", async () => {
     const recipeRepositories = createRecipeRepository([privateRepository]);
     const response = await handlePatchRepository(
@@ -1541,7 +1579,7 @@ describe("repository API handlers", () => {
         occurredOn: "2026-07-06",
         repositoryId: "repo_private",
         userId: "profile_test",
-        visibility: "summary_only",
+        visibility: "private",
       },
     ]);
   });

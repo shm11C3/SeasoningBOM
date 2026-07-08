@@ -140,9 +140,7 @@ export class D1RecipeRepository implements RecipeRepositoryMetadataRepository {
   }
 
   async create(input: CreateRecipeRepositoryInput): Promise<CloudRecipeRepository> {
-    const visibility = input.visibility ?? "public";
-    const version = input.version ?? "0.1.0";
-    const servings = input.servings ?? 2;
+    const { servings, version, visibility } = this.resolveCreateDefaults(input);
 
     await this.createRepositoryStatement(input, visibility, version, servings).run();
 
@@ -153,9 +151,7 @@ export class D1RecipeRepository implements RecipeRepositoryMetadataRepository {
     contributionEvent: CloudContributionEvent;
     repository: CloudRecipeRepository;
   }> {
-    const visibility = input.visibility ?? "public";
-    const version = input.version ?? "0.1.0";
-    const servings = input.servings ?? 2;
+    const { servings, version, visibility } = this.resolveCreateDefaults(input);
 
     await this.db.batch([
       this.createRepositoryStatement(input, visibility, version, servings),
@@ -298,6 +294,18 @@ export class D1RecipeRepository implements RecipeRepositoryMetadataRepository {
         input.visibility,
         JSON.stringify(input.metadata),
       );
+  }
+
+  private resolveCreateDefaults(input: CreateRecipeRepositoryInput): {
+    servings: number;
+    version: string;
+    visibility: RecipeRepositoryEntity["visibility"];
+  } {
+    return {
+      servings: input.servings ?? 2,
+      version: input.version ?? "0.1.0",
+      visibility: input.visibility ?? "public",
+    };
   }
 }
 

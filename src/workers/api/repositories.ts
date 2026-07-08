@@ -550,7 +550,7 @@ export async function handlePostRepositoryFork(
         }),
         occurredAt: now,
         occurredOn: contributionDateFromIso(now),
-        visibility: owner.contributionVisibility,
+        visibility: contributionVisibilityForRepository(owner.contributionVisibility, "public"),
       },
       description: sourceRepository.description,
       id,
@@ -697,7 +697,10 @@ export async function handlePostRepository(
         }),
         occurredAt: now,
         occurredOn: contributionDateFromIso(now),
-        visibility: owner.contributionVisibility,
+        visibility: contributionVisibilityForRepository(
+          owner.contributionVisibility,
+          input.value.visibility,
+        ),
       },
       id,
       ownerHandle: owner.username,
@@ -808,7 +811,10 @@ export async function handlePatchRepository(
               }),
               occurredAt: now,
               occurredOn: contributionDateFromIso(now),
-              visibility: owner.contributionVisibility,
+              visibility: contributionVisibilityForRepository(
+                owner.contributionVisibility,
+                input.value.visibility,
+              ),
             },
           })
         ).repository
@@ -1454,6 +1460,13 @@ function shouldRecordRecipeUpdateContribution(
     (current.readme ?? undefined) !== (next.readme ?? undefined) ||
     (current.license ?? undefined) !== (next.license ?? undefined)
   );
+}
+
+function contributionVisibilityForRepository(
+  userContributionVisibility: UserProfile["contributionVisibility"],
+  repositoryVisibility: RecipeRepositoryEntity["visibility"],
+): UserProfile["contributionVisibility"] {
+  return repositoryVisibility === "private" ? "private" : userContributionVisibility;
 }
 
 function contributionDateFromIso(iso: string): string {
