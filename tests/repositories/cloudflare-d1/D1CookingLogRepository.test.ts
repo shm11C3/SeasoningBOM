@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { D1CookingLogRepository } from "../../../src/repositories/cloudflare-d1/D1CookingLogRepository";
+import { D1InventoryRepository } from "../../../src/repositories/cloudflare-d1/D1InventoryRepository";
 import { D1RecipeRepository } from "../../../src/repositories/cloudflare-d1/D1RecipeRepository";
 import { D1UserProfileRepository } from "../../../src/repositories/cloudflare-d1/D1UserProfileRepository";
 import { createSqliteD1 } from "./sqliteD1";
@@ -11,6 +12,7 @@ const migrationSql = readFileSync(join(process.cwd(), "migrations/0001_cloud_mvp
 
 describe("D1CookingLogRepository", () => {
   let cookingLogs: D1CookingLogRepository;
+  let inventory: D1InventoryRepository;
   let recipes: D1RecipeRepository;
   let sqlite: DatabaseSync;
   let users: D1UserProfileRepository;
@@ -20,6 +22,7 @@ describe("D1CookingLogRepository", () => {
     sqlite.exec(migrationSql);
     const db = createSqliteD1(sqlite);
     cookingLogs = new D1CookingLogRepository(db);
+    inventory = new D1InventoryRepository(db);
     recipes = new D1RecipeRepository(db);
     users = new D1UserProfileRepository(db);
 
@@ -112,6 +115,108 @@ describe("D1CookingLogRepository", () => {
       cookingLogId: "cook_owner",
       repositorySlug: "curry-rice",
       result: "cooked",
+    });
+  });
+
+  it("links used inventory and records a private EOL rescue contribution in one batch", async () => {
+    await inventory.create({
+      bestBeforeDate: "2026-07-07",
+      category: "dairy",
+      id: "inventory_milk",
+      name: "milk",
+      now: "2026-07-06T01:02:03.000Z",
+      quantity: 1,
+      unit: "l",
+      userId: "profile_owner",
+    });
+
+    const result = await cookingLogs.createWithContribution({
+      authorDisplayName: "Owner User",
+      authorHandle: "owner",
+      contributionEventId: "contribution_cook",
+      contributionVisibility: "summary_only",
+      cookedAt: "2026-07-06T04:05:06.000Z",
+      cookingLogId: "cook_owner",
+      eolRescueContribution: {
+        id: "contribution_rescue",
+        rescuedItems: [
+          {
+            bestBeforeDate: "2026-07-07",
+            id: "inventory_milk",
+            name: "milk",
+            quantity: 1,
+            unit: "l",
+          },
+        ],
+      },
+      now: "2026-07-06T05:06:07.000Z",
+      occurredOn: "2026-07-06",
+      recipeVersion: "1.2.3",
+      repositoryId: "repo_curry",
+      repositoryName: "Curry Rice",
+      repositoryOwnerHandle: "owner",
+      repositorySlug: "curry-rice",
+      result: "cooked",
+      usedInventoryItemIds: ["inventory_milk"],
+      userId: "profile_owner",
+    });
+
+    expect(result.eolRescueContributionEvent).toMatchObject({
+      contributionCount: 2,
+      eventType: "eol_rescued",
+      id: "contribution_rescue",
+      occurredOn: "2026-07-06",
+      visibility: "private",
+    });
+
+    const linkedInventoryRows = sqlite
+      .prepare(
+        `SELECT cooking_log_id, inventory_item_id
+         FROM cooking_log_inventory_items
+         WHERE cooking_log_id = ?`,
+      )
+      .all("cook_owner") as Array<{ cooking_log_id: string; inventory_item_id: string }>;
+    expect(linkedInventoryRows).toEqual([
+      {
+        cooking_log_id: "cook_owner",
+        inventory_item_id: "inventory_milk",
+      },
+    ]);
+
+    const contributionRows = sqlite
+      .prepare(
+        `SELECT event_type, contribution_count, visibility, metadata_json
+         FROM contribution_events
+         ORDER BY event_type ASC`,
+      )
+      .all() as Array<{
+      contribution_count: number;
+      event_type: string;
+      metadata_json: string;
+      visibility: string;
+    }>;
+    expect(contributionRows).toEqual([
+      expect.objectContaining({
+        contribution_count: 1,
+        event_type: "cooking_logged",
+        visibility: "summary_only",
+      }),
+      expect.objectContaining({
+        contribution_count: 2,
+        event_type: "eol_rescued",
+        visibility: "private",
+      }),
+    ]);
+    expect(JSON.parse(contributionRows[1].metadata_json)).toMatchObject({
+      cookingLogId: "cook_owner",
+      rescuedItems: [
+        {
+          bestBeforeDate: "2026-07-07",
+          id: "inventory_milk",
+          name: "milk",
+        },
+      ],
+      repositorySlug: "curry-rice",
     });
   });
 

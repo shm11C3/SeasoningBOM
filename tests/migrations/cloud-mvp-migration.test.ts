@@ -27,6 +27,9 @@ describe("Cloud MVP D1 migration smoke test", () => {
       const inventoryForeignKeys = db
         .prepare("PRAGMA foreign_key_list(inventory_items)")
         .all() as Array<{ table: string }>;
+      const cookingLogInventoryForeignKeys = db
+        .prepare("PRAGMA foreign_key_list(cooking_log_inventory_items)")
+        .all() as Array<{ table: string }>;
 
       expect(tableRows.map((row) => row.name)).toEqual(
         expect.arrayContaining([...cloudMvpTableNames]),
@@ -38,6 +41,9 @@ describe("Cloud MVP D1 migration smoke test", () => {
         expect.arrayContaining(["user_profiles", "recipe_repositories"]),
       );
       expect(inventoryForeignKeys.map((row) => row.table)).toEqual(["user_profiles"]);
+      expect(cookingLogInventoryForeignKeys.map((row) => row.table)).toEqual(
+        expect.arrayContaining(["cooking_logs", "inventory_items"]),
+      );
     } finally {
       db.close();
     }

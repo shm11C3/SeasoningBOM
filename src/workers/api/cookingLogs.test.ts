@@ -6,6 +6,12 @@ import type {
   CreateCookingLogWithContributionInput,
 } from "../../repositories/cloudflare-d1/D1CookingLogRepository";
 import type {
+  CloudInventoryItem,
+  CreateInventoryItemInput,
+  InventoryItemRepository,
+  UpdateInventoryItemInput,
+} from "../../repositories/cloudflare-d1/D1InventoryRepository";
+import type {
   CloudRecipeRepository,
   CreateRecipeRepositoryInput,
   RecipeRepositoryMetadataRepository,
@@ -72,6 +78,36 @@ const privateRepository: CloudRecipeRepository = {
   name: "Private Curry",
   slug: "private-curry",
   visibility: "private",
+};
+
+const deprecatedInventoryItem: CloudInventoryItem = {
+  bestBeforeDate: "2026-07-07",
+  category: "dairy",
+  createdAt: "2026-07-06T00:00:00.000Z",
+  hazardous: false,
+  id: "inventory_milk",
+  name: "milk",
+  quantity: 1,
+  unit: "l",
+  updatedAt: "2026-07-06T00:00:00.000Z",
+  userId: "profile_test",
+};
+
+const activeInventoryItem: CloudInventoryItem = {
+  ...deprecatedInventoryItem,
+  bestBeforeDate: "2026-07-20",
+  category: "grain",
+  id: "inventory_rice",
+  name: "rice",
+  quantity: 2,
+  unit: "go",
+};
+
+const hazardousDeprecatedInventoryItem: CloudInventoryItem = {
+  ...deprecatedInventoryItem,
+  hazardous: true,
+  id: "inventory_hazardous_milk",
+  name: "hazardous milk",
 };
 
 async function parseJson(response: Response) {
@@ -349,6 +385,106 @@ describe("cooking log API handlers", () => {
     expect(response.status).toBe(201);
   });
 
+  it("records a private EOL rescue contribution for used deprecated inventory", async () => {
+    const cookingLogs = createCookingLogRepository([]);
+    const response = await handlePostCookingLog(
+      new Request("https://example.test/api/repos/test-user/public-curry/cooking-logs", {
+        body: JSON.stringify({
+          cookedAt: "2026-07-06T04:05:06.000Z",
+          result: "cooked",
+          usedInventoryItemIds: ["inventory_milk", "inventory_rice", "inventory_hazardous_milk"],
+        }),
+        method: "POST",
+      }),
+      "test-user",
+      "public-curry",
+      userProfile,
+      env,
+      {
+        cookingLogs,
+        createContributionEventId: () => "contribution_cook",
+        createCookingLogId: () => "cook_new",
+        createEolRescueContributionEventId: () => "contribution_rescue",
+        inventoryItems: createInventoryRepository([
+          deprecatedInventoryItem,
+          activeInventoryItem,
+          hazardousDeprecatedInventoryItem,
+        ]),
+        now: () => new Date("2026-07-06T05:06:07.000Z"),
+        recipeRepositories: createRecipeRepository([publicRepository]),
+      },
+    );
+
+    await expect(parseJson(response)).resolves.toEqual({
+      contributionEvent: expect.objectContaining({
+        eventType: "cooking_logged",
+        id: "contribution_cook",
+      }),
+      cookingLog: expect.objectContaining({
+        id: "cook_new",
+      }),
+      eolRescueContributionEvent: {
+        contributionCount: 2,
+        eventType: "eol_rescued",
+        id: "contribution_rescue",
+        metadata: {
+          cookingLogId: "cook_new",
+          recipeVersion: "1.2.3",
+          repositoryName: "Public Curry",
+          repositoryOwnerHandle: "test-user",
+          repositorySlug: "public-curry",
+          rescuedItems: [
+            {
+              bestBeforeDate: "2026-07-07",
+              id: "inventory_milk",
+              name: "milk",
+              quantity: 1,
+              unit: "l",
+            },
+          ],
+        },
+        occurredAt: "2026-07-06T04:05:06.000Z",
+        occurredOn: "2026-07-06",
+        repositoryId: "repo_public",
+        userId: "profile_test",
+        visibility: "private",
+      },
+      repository: expect.objectContaining({
+        id: "repo_public",
+      }),
+    });
+    expect(response.status).toBe(201);
+  });
+
+  it("rejects used inventory items outside the signed-in user's inventory", async () => {
+    const response = await handlePostCookingLog(
+      new Request("https://example.test/api/repos/test-user/public-curry/cooking-logs", {
+        body: JSON.stringify({
+          result: "cooked",
+          usedInventoryItemIds: ["inventory_other"],
+        }),
+        method: "POST",
+      }),
+      "test-user",
+      "public-curry",
+      userProfile,
+      env,
+      {
+        cookingLogs: createCookingLogRepository([]),
+        inventoryItems: createInventoryRepository([deprecatedInventoryItem]),
+        recipeRepositories: createRecipeRepository([publicRepository]),
+      },
+    );
+
+    await expect(parseJson(response)).resolves.toEqual({
+      error: {
+        code: "validation_failed",
+        message: "Used inventory items must belong to the signed-in user.",
+      },
+    });
+    expect(response.status).toBe(400);
+  });
+
   it("rejects invalid cooking log input", async () => {
     const cases: [unknown, string][] = [
       [null, "Request body must be a JSON object."],
@@ -359,6 +495,10 @@ describe("cooking log API handlers", () => {
       [{ cookedAt: 123, result: "cooked" }, "Cooked at must be a valid date-time string."],
       [{ result: "" }, "Result must be 1-80 characters."],
       [{ notes: 123, result: "cooked" }, "Notes must be 2000 characters or fewer."],
+      [
+        { result: "cooked", usedInventoryItemIds: [123] },
+        "Used inventory item IDs must be an array of up to 20 strings.",
+      ],
     ];
 
     for (const [body, message] of cases) {
@@ -637,6 +777,64 @@ function createRecipeRepository(
   };
 }
 
+function createInventoryRepository(initialItems: CloudInventoryItem[]): InventoryItemRepository {
+  const items = [...initialItems];
+
+  return {
+    async create(input: CreateInventoryItemInput) {
+      const item: CloudInventoryItem = {
+        bestBeforeDate: input.bestBeforeDate,
+        category: input.category,
+        createdAt: input.now,
+        hazardous: input.hazardous ?? false,
+        id: input.id,
+        name: input.name,
+        quantity: input.quantity,
+        unit: input.unit,
+        updatedAt: input.now,
+        useByDate: input.useByDate,
+        userId: input.userId,
+      };
+      items.push(item);
+      return item;
+    },
+    async deleteForUser(userId, id) {
+      const index = items.findIndex((item) => item.userId === userId && item.id === id);
+      if (index >= 0) {
+        items.splice(index, 1);
+      }
+    },
+    async findByIdForUser(userId, id) {
+      return items.find((item) => item.userId === userId && item.id === id) ?? null;
+    },
+    async listByUserId(userId) {
+      return items.filter((item) => item.userId === userId);
+    },
+    async update(input: UpdateInventoryItemInput) {
+      const index = items.findIndex((item) => item.userId === input.userId && item.id === input.id);
+      if (index < 0) {
+        return null;
+      }
+
+      const item: CloudInventoryItem = {
+        bestBeforeDate: input.bestBeforeDate,
+        category: input.category,
+        createdAt: input.createdAt,
+        hazardous: input.hazardous,
+        id: input.id,
+        name: input.name,
+        quantity: input.quantity,
+        unit: input.unit,
+        updatedAt: input.now,
+        useByDate: input.useByDate,
+        userId: input.userId,
+      };
+      items[index] = item;
+      return item;
+    },
+  };
+}
+
 function createCookingLogRepository(initialLogs: CloudCookingLog[]): CookingLogRepository {
   const logs = [...initialLogs];
 
@@ -672,8 +870,29 @@ function createCookingLogRepository(initialLogs: CloudCookingLog[]): CookingLogR
         userId: input.userId,
         visibility: input.contributionVisibility,
       };
+      const eolRescueContributionEvent: CloudContributionEvent | undefined =
+        input.eolRescueContribution
+          ? {
+              contributionCount: 2,
+              eventType: "eol_rescued",
+              id: input.eolRescueContribution.id,
+              metadata: {
+                cookingLogId: input.cookingLogId,
+                recipeVersion: input.recipeVersion,
+                repositoryName: input.repositoryName,
+                repositoryOwnerHandle: input.repositoryOwnerHandle,
+                repositorySlug: input.repositorySlug,
+                rescuedItems: input.eolRescueContribution.rescuedItems,
+              },
+              occurredAt: input.cookedAt,
+              occurredOn: input.occurredOn,
+              repositoryId: input.repositoryId,
+              userId: input.userId,
+              visibility: "private",
+            }
+          : undefined;
       logs.push(cookingLog);
-      return { contributionEvent, cookingLog };
+      return { contributionEvent, cookingLog, eolRescueContributionEvent };
     },
     async listVisibleForRepository(input) {
       return logs.filter((log) => log.repositoryId === input.repositoryId);

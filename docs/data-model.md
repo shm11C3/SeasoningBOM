@@ -14,6 +14,9 @@ RecipeRepositoryEntity
 
 InventoryItem
 
+CookingLog
+  └── CookingLogInventoryItem[]
+
 AppSettings
 ```
 
@@ -151,6 +154,31 @@ type InventoryItem = {
 | `bestBeforeDate` | 賞味期限。EOL 判定に使う |
 | `useByDate` | 消費期限。過ぎていれば unsupported |
 | `hazardous` | ユーザーが危険フラグを付けた状態 |
+
+## Cooking Log
+
+実際に料理した記録です。Repository の公開範囲と作者の Contribution visibility に従って表示します。
+
+```ts
+type CookingLog = {
+  id: string;
+  userId: string;
+  repositoryId: string;
+  recipeVersion: string;
+  result: string;
+  notes?: string;
+  cookedAt: string;
+  createdAt: string;
+};
+
+type CookingLogInventoryItem = {
+  cookingLogId: string;
+  inventoryItemId: string;
+  createdAt: string;
+};
+```
+
+Cooking Log 作成時にユーザーが明示した本人所有の `InventoryItem` だけを `CookingLogInventoryItem` として紐付けます。この紐付けは EOL Rescue 判定に使いますが、公開 Cooking Log 一覧には Inventory details を含めません。
 
 ## Lifecycle Status
 

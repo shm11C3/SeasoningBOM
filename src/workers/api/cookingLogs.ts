@@ -1,9 +1,16 @@
+import { calculateLifecycleStatus, defaultSettings } from "../../domain";
 import type { CloudContributionEvent } from "../../repositories/cloudflare-d1/D1ContributionEvent";
 import {
   type CloudCookingLog,
   type CookingLogRepository,
   D1CookingLogRepository,
+  type EolRescuedInventoryItem,
 } from "../../repositories/cloudflare-d1/D1CookingLogRepository";
+import {
+  type CloudInventoryItem,
+  D1InventoryRepository,
+  type InventoryItemRepository,
+} from "../../repositories/cloudflare-d1/D1InventoryRepository";
 import {
   type CloudRecipeRepository,
   D1RecipeRepository,
@@ -21,12 +28,14 @@ export type CookingLogRouteOptions = ProfileRouteOptions &
     cookingLogs?: CookingLogRepository;
     createContributionEventId?: () => string;
     createCookingLogId?: () => string;
+    createEolRescueContributionEventId?: () => string;
   };
 
 type CookingLogBody = {
   cookedAt?: unknown;
   notes?: unknown;
   result?: unknown;
+  usedInventoryItemIds?: unknown;
 };
 
 type SerializedCookingLog = {
@@ -79,6 +88,7 @@ type CookingLogListResponseBody = {
 
 type CookingLogResponseBody = {
   contributionEvent: SerializedContributionEvent;
+  eolRescueContributionEvent?: SerializedContributionEvent;
   cookingLog: SerializedCookingLog;
   repository: SerializedRepository;
 };
@@ -158,6 +168,19 @@ export async function handlePostCookingLog(
   const cookingLogId = options.createCookingLogId?.() ?? crypto.randomUUID();
   const contributionEventId = options.createContributionEventId?.() ?? crypto.randomUUID();
   const repository = repositoryResult.repository;
+  const usedInventoryItemsResult = await resolveUsedInventoryItems(
+    actor.id,
+    input.value.usedInventoryItemIds,
+    env,
+    options,
+  );
+  if (!usedInventoryItemsResult.ok) {
+    return usedInventoryItemsResult.response;
+  }
+  const eolRescuedItems = findEolRescuedItems(
+    usedInventoryItemsResult.items,
+    new Date(input.value.cookedAt),
+  );
 
   try {
     const result = await cookingLogs.createWithContribution({
@@ -167,6 +190,13 @@ export async function handlePostCookingLog(
       contributionVisibility: actor.contributionVisibility,
       cookedAt: input.value.cookedAt,
       cookingLogId,
+      eolRescueContribution:
+        eolRescuedItems.length > 0
+          ? {
+              id: options.createEolRescueContributionEventId?.() ?? crypto.randomUUID(),
+              rescuedItems: eolRescuedItems,
+            }
+          : undefined,
       notes: input.value.notes,
       now: now.toISOString(),
       occurredOn: input.value.cookedAt.slice(0, 10),
@@ -177,11 +207,15 @@ export async function handlePostCookingLog(
       repositorySlug: repository.slug,
       result: input.value.result,
       userId: actor.id,
+      usedInventoryItemIds: usedInventoryItemsResult.items.map((item) => item.id),
     });
 
     return jsonResponse(
       {
         contributionEvent: serializeContributionEvent(result.contributionEvent),
+        eolRescueContributionEvent: result.eolRescueContributionEvent
+          ? serializeContributionEvent(result.eolRescueContributionEvent)
+          : undefined,
         cookingLog: serializeCookingLog(result.cookingLog),
         repository: serializeRepository(repository),
       } satisfies CookingLogResponseBody,
@@ -204,6 +238,13 @@ function getCookingLogRepository(
   options: CookingLogRouteOptions,
 ): CookingLogRepository {
   return options.cookingLogs ?? new D1CookingLogRepository(env.DB);
+}
+
+function getInventoryRepository(
+  env: WorkerEnv,
+  options: CookingLogRouteOptions,
+): InventoryItemRepository {
+  return options.inventoryItems ?? new D1InventoryRepository(env.DB);
 }
 
 async function findReadableRepository(
@@ -280,6 +321,7 @@ function normalizeCookingLogBody(
         cookedAt: string;
         notes?: string;
         result: string;
+        usedInventoryItemIds: string[];
       };
     }
   | { message: string; ok: false } {
@@ -298,12 +340,18 @@ function normalizeCookingLogBody(
     return { message: "Cooked at must be a valid date-time string.", ok: false };
   }
 
+  const usedInventoryItemIds = normalizeUsedInventoryItemIds(body.usedInventoryItemIds);
+  if (!usedInventoryItemIds.ok) {
+    return usedInventoryItemIds;
+  }
+
   return {
     ok: true,
     value: {
       cookedAt,
       notes: notes || undefined,
       result,
+      usedInventoryItemIds: usedInventoryItemIds.value,
     },
   };
 }
@@ -345,6 +393,95 @@ function normalizeOptionalDateTime(value: unknown, fallbackDate: Date): string |
   }
 
   return new Date(timestamp).toISOString();
+}
+
+function normalizeUsedInventoryItemIds(
+  value: unknown,
+): { ok: true; value: string[] } | { message: string; ok: false } {
+  if (typeof value === "undefined" || value === null) {
+    return { ok: true, value: [] };
+  }
+
+  if (!Array.isArray(value) || value.length > 20) {
+    return {
+      message: "Used inventory item IDs must be an array of up to 20 strings.",
+      ok: false,
+    };
+  }
+
+  const ids: string[] = [];
+  for (const item of value) {
+    if (typeof item !== "string") {
+      return {
+        message: "Used inventory item IDs must be an array of up to 20 strings.",
+        ok: false,
+      };
+    }
+
+    const id = item.trim();
+    if (id.length === 0 || id.length > 128) {
+      return {
+        message: "Used inventory item IDs must be an array of up to 20 strings.",
+        ok: false,
+      };
+    }
+    ids.push(id);
+  }
+
+  return { ok: true, value: [...new Set(ids)] };
+}
+
+async function resolveUsedInventoryItems(
+  userId: string,
+  usedInventoryItemIds: string[],
+  env: WorkerEnv,
+  options: CookingLogRouteOptions,
+): Promise<{ ok: true; items: CloudInventoryItem[] } | { ok: false; response: Response }> {
+  if (usedInventoryItemIds.length === 0) {
+    return { ok: true, items: [] };
+  }
+
+  try {
+    const inventory = getInventoryRepository(env, options);
+    const ownedItems = await inventory.listByUserId(userId);
+    const ownedItemsById = new Map(ownedItems.map((item) => [item.id, item]));
+    const usedItems = usedInventoryItemIds
+      .map((id) => ownedItemsById.get(id))
+      .filter((item): item is CloudInventoryItem => Boolean(item));
+
+    if (usedItems.length !== usedInventoryItemIds.length) {
+      return {
+        ok: false,
+        response: badRequest("Used inventory items must belong to the signed-in user."),
+      };
+    }
+
+    return { ok: true, items: usedItems };
+  } catch {
+    return { ok: false, response: serverError("Failed to create cooking log.") };
+  }
+}
+
+function findEolRescuedItems(
+  usedInventoryItems: CloudInventoryItem[],
+  cookedAt: Date,
+): EolRescuedInventoryItem[] {
+  return usedInventoryItems
+    .filter((item) => {
+      const status = calculateLifecycleStatus({
+        deprecatedThresholdDays: defaultSettings.deprecatedThresholdDays,
+        item,
+        now: cookedAt,
+      });
+      return status === "deprecated";
+    })
+    .map((item) => ({
+      bestBeforeDate: item.bestBeforeDate,
+      id: item.id,
+      name: item.name,
+      quantity: item.quantity,
+      unit: item.unit,
+    }));
 }
 
 function serializeCookingLog(cookingLog: CloudCookingLog): SerializedCookingLog {

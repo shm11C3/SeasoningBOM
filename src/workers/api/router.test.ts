@@ -916,6 +916,64 @@ describe("Worker API router", () => {
     ).resolves.toHaveLength(1);
   });
 
+  it("creates EOL rescue contributions through the authenticated concrete Hono route", async () => {
+    const response = await handleApiRequest(
+      new Request("https://example.test/api/repos/test-user/public-curry/cooking-logs", {
+        body: JSON.stringify({
+          cookedAt: "2026-07-06T04:05:06.000Z",
+          result: "cooked",
+          usedInventoryItemIds: ["inventory_milk"],
+        }),
+        headers: {
+          authorization: "Bearer fake-session",
+        },
+        method: "POST",
+      }),
+      configuredEnv,
+      {
+        ...validSessionAuth,
+        cookingLogs: createCookingLogRepository([]),
+        createContributionEventId: () => "contribution_cook",
+        createCookingLogId: () => "cook_new",
+        createEolRescueContributionEventId: () => "contribution_rescue",
+        inventoryItems: createInventoryRepository([
+          {
+            ...inventoryItem,
+            bestBeforeDate: "2026-07-07",
+            category: "dairy",
+            id: "inventory_milk",
+            name: "milk",
+            quantity: 1,
+            unit: "l",
+          },
+        ]),
+        now: () => new Date("2026-07-06T05:06:07.000Z"),
+        recipeRepositories: createRecipeRepository([publicRecipeRepository]),
+        userProfiles: createUserProfileRepository([userProfile]),
+      },
+    );
+
+    await expect(parseJson(response)).resolves.toEqual({
+      contributionEvent: expect.objectContaining({
+        eventType: "cooking_logged",
+        id: "contribution_cook",
+      }),
+      cookingLog: expect.objectContaining({
+        id: "cook_new",
+      }),
+      eolRescueContributionEvent: expect.objectContaining({
+        contributionCount: 2,
+        eventType: "eol_rescued",
+        id: "contribution_rescue",
+        visibility: "private",
+      }),
+      repository: expect.objectContaining({
+        id: "repo_public",
+      }),
+    });
+    expect(response.status).toBe(201);
+  });
+
   it("requires bearer auth for cooking log mutations", async () => {
     const response = await handleApiRequest(
       new Request("https://example.test/api/repos/test-user/public-curry/cooking-logs", {
@@ -2264,8 +2322,29 @@ function createCookingLogRepository(initialLogs: CloudCookingLog[]): CookingLogR
         userId: input.userId,
         visibility: input.contributionVisibility,
       };
+      const eolRescueContributionEvent: CookingLogContributionEvent | undefined =
+        input.eolRescueContribution
+          ? {
+              contributionCount: 2,
+              eventType: "eol_rescued",
+              id: input.eolRescueContribution.id,
+              metadata: {
+                cookingLogId: input.cookingLogId,
+                recipeVersion: input.recipeVersion,
+                repositoryName: input.repositoryName,
+                repositoryOwnerHandle: input.repositoryOwnerHandle,
+                repositorySlug: input.repositorySlug,
+                rescuedItems: input.eolRescueContribution.rescuedItems,
+              },
+              occurredAt: input.cookedAt,
+              occurredOn: input.occurredOn,
+              repositoryId: input.repositoryId,
+              userId: input.userId,
+              visibility: "private",
+            }
+          : undefined;
       logs.push(cookingLog);
-      return { contributionEvent, cookingLog };
+      return { contributionEvent, cookingLog, eolRescueContributionEvent };
     },
     async listVisibleForRepository(input) {
       return logs.filter((log) => log.repositoryId === input.repositoryId);
