@@ -237,6 +237,7 @@ Before publishing a PR, check:
 - Public Recipe Alerts and private Inventory Audit issues remain separate.
 - SeasoningBOM JSON excludes Inventory Audit details.
 - Unsupported and hazardous inventory is excluded from recommendations and shopping-list availability.
+- Contribution events are source-action-derived; do not add manual Contribution CRUD unless an ADR supersedes the Cloud D1 MVP boundary.
 - DB-affecting changes have reload-oriented Playwright E2E coverage.
 - CI still runs check, Vitest coverage, build, and Playwright E2E.
 - Docs and ADRs match the implementation, especially where MVP behavior is intentionally less strict than a future architecture goal.

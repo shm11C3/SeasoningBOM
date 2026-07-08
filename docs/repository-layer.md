@@ -161,6 +161,7 @@ Production rules:
 - Profile contribution reads are handled by `D1ContributionRepository` and exposed through `GET /api/users/:username/profile`, `GET /api/users/:username/contributions`, and `GET /api/users/:username/contributions/:date`.
 - Contribution graph counts are visible for `public` and `summary_only` profiles; `private` contribution graphs are owner-only.
 - Contribution day event details are visible to the owner and to third parties only when the profile is `public`; `summary_only` third-party reads return counts without events.
+- Cloud D1 MVP does not expose manual Contribution event create/update/delete APIs. Contribution rows are written by source actions in the same D1 batch as the source write.
 - Recipe Alert queries may use Repository content only.
 - Inventory Audit queries may combine Repository content with only the viewer's Inventory.
 - D1 bindings and SQL stay inside Workers / repository implementation.
