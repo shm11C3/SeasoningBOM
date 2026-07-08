@@ -42,6 +42,14 @@ const userProfile: UserProfile = {
   username: "test-user",
 };
 
+const privateProfile: UserProfile = {
+  ...userProfile,
+  authSubject: "user_private",
+  contributionVisibility: "private",
+  id: "profile_private",
+  username: "private-user",
+};
+
 const contributionEvent: CloudContributionEvent = {
   contributionCount: 1,
   eventType: "cooking_logged",
@@ -57,15 +65,26 @@ const contributionEvent: CloudContributionEvent = {
   visibility: "summary_only",
 };
 
-test("anonymous users can read summary-only profile graph counts without day details", async () => {
-  const profile = await handleApiRequest(
+test("anonymous users can read summary-only public profile metadata", async () => {
+  const response = await handleApiRequest(
     new Request("https://example.test/api/users/test-user/profile"),
     env,
     {
       userProfiles: createUserProfileRepository([userProfile]),
     },
   );
-  const graph = await handleApiRequest(
+
+  await expect(response.json()).resolves.toEqual({
+    profile: expect.objectContaining({
+      id: "profile_test",
+      username: "test-user",
+    }),
+  });
+  expect(response.status).toBe(200);
+});
+
+test("anonymous users can read summary-only contribution graph counts", async () => {
+  const response = await handleApiRequest(
     new Request(
       "https://example.test/api/users/test-user/contributions?from=2026-07-06&to=2026-07-07",
     ),
@@ -77,7 +96,22 @@ test("anonymous users can read summary-only profile graph counts without day det
       userProfiles: createUserProfileRepository([userProfile]),
     },
   );
-  const day = await handleApiRequest(
+
+  await expect(response.json()).resolves.toEqual(
+    expect.objectContaining({
+      days: [
+        { contributionCount: 1, date: "2026-07-06", level: 1 },
+        { contributionCount: 0, date: "2026-07-07", level: 0 },
+      ],
+      detailsVisible: false,
+      totalContributions: 1,
+    }),
+  );
+  expect(response.status).toBe(200);
+});
+
+test("anonymous users cannot read summary-only contribution day details", async () => {
+  const response = await handleApiRequest(
     new Request("https://example.test/api/users/test-user/contributions/2026-07-06"),
     env,
     {
@@ -89,31 +123,13 @@ test("anonymous users can read summary-only profile graph counts without day det
     },
   );
 
-  await expect(profile.json()).resolves.toEqual({
-    profile: expect.objectContaining({
-      id: "profile_test",
-      username: "test-user",
-    }),
-  });
-  expect(profile.status).toBe(200);
-  await expect(graph.json()).resolves.toEqual(
-    expect.objectContaining({
-      days: [
-        { contributionCount: 1, date: "2026-07-06", level: 1 },
-        { contributionCount: 0, date: "2026-07-07", level: 0 },
-      ],
-      detailsVisible: false,
-      totalContributions: 1,
-    }),
-  );
-  expect(graph.status).toBe(200);
-  await expect(day.json()).resolves.toEqual(
+  await expect(response.json()).resolves.toEqual(
     expect.objectContaining({
       detailsVisible: false,
       events: [],
     }),
   );
-  expect(day.status).toBe(200);
+  expect(response.status).toBe(200);
 });
 
 test("authenticated owners can read summary-only contribution day details", async () => {
@@ -148,14 +164,26 @@ test("authenticated owners can read summary-only contribution day details", asyn
   expect(response.status).toBe(200);
 });
 
+test("private profile metadata remains visible to anonymous users", async () => {
+  const response = await handleApiRequest(
+    new Request("https://example.test/api/users/private-user/profile"),
+    env,
+    {
+      userProfiles: createUserProfileRepository([privateProfile]),
+    },
+  );
+
+  await expect(response.json()).resolves.toEqual({
+    profile: expect.objectContaining({
+      contributionVisibility: "private",
+      id: "profile_private",
+      username: "private-user",
+    }),
+  });
+  expect(response.status).toBe(200);
+});
+
 test("private contribution graph routes are hidden from anonymous users", async () => {
-  const privateProfile: UserProfile = {
-    ...userProfile,
-    authSubject: "user_private",
-    contributionVisibility: "private",
-    id: "profile_private",
-    username: "private-user",
-  };
   const response = await handleApiRequest(
     new Request(
       "https://example.test/api/users/private-user/contributions?from=2026-07-06&to=2026-07-06",
@@ -165,6 +193,28 @@ test("private contribution graph routes are hidden from anonymous users", async 
       contributions: createContributionRepository([
         { contributionCount: 1, occurredOn: "2026-07-06" },
       ]),
+      userProfiles: createUserProfileRepository([privateProfile]),
+    },
+  );
+
+  await expect(response.json()).resolves.toEqual({
+    error: {
+      code: "not_found",
+      message: "Profile not found.",
+    },
+  });
+  expect(response.status).toBe(404);
+});
+
+test("private contribution day routes are hidden from anonymous users", async () => {
+  const response = await handleApiRequest(
+    new Request("https://example.test/api/users/private-user/contributions/2026-07-06"),
+    env,
+    {
+      contributions: createContributionRepository(
+        [{ contributionCount: 1, occurredOn: "2026-07-06" }],
+        [{ ...contributionEvent, userId: "profile_private", visibility: "private" }],
+      ),
       userProfiles: createUserProfileRepository([privateProfile]),
     },
   );
