@@ -141,3 +141,15 @@ ON cooking_logs(user_id, cooked_at);
 
 CREATE INDEX IF NOT EXISTS idx_cooking_logs_repository
 ON cooking_logs(repository_id);
+
+CREATE TABLE IF NOT EXISTS cooking_log_inventory_items (
+  cooking_log_id TEXT NOT NULL,
+  inventory_item_id TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY(cooking_log_id, inventory_item_id),
+  FOREIGN KEY(cooking_log_id) REFERENCES cooking_logs(id),
+  FOREIGN KEY(inventory_item_id) REFERENCES inventory_items(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_cooking_log_inventory_items_inventory_item
+ON cooking_log_inventory_items(inventory_item_id);

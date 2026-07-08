@@ -15,6 +15,14 @@ export type CloudCookingLog = {
   createdAt: string;
 };
 
+export type EolRescuedInventoryItem = {
+  bestBeforeDate?: string;
+  id: string;
+  name: string;
+  quantity: number;
+  unit: string;
+};
+
 export type CreateCookingLogWithContributionInput = {
   cookingLogId: string;
   contributionEventId: string;
@@ -32,6 +40,11 @@ export type CreateCookingLogWithContributionInput = {
   occurredOn: string;
   now: string;
   contributionVisibility: ContributionVisibility;
+  eolRescueContribution?: {
+    id: string;
+    rescuedItems: EolRescuedInventoryItem[];
+  };
+  usedInventoryItemIds?: string[];
 };
 
 type CookingLogRow = {
@@ -50,6 +63,7 @@ type CookingLogRow = {
 export type CookingLogRepository = {
   createWithContribution(input: CreateCookingLogWithContributionInput): Promise<{
     contributionEvent: CloudContributionEvent;
+    eolRescueContributionEvent?: CloudContributionEvent;
     cookingLog: CloudCookingLog;
   }>;
   listVisibleForRepository(input: {
@@ -96,6 +110,7 @@ export class D1CookingLogRepository implements CookingLogRepository {
 
   async createWithContribution(input: CreateCookingLogWithContributionInput): Promise<{
     contributionEvent: CloudContributionEvent;
+    eolRescueContributionEvent?: CloudContributionEvent;
     cookingLog: CloudCookingLog;
   }> {
     const metadata = {
@@ -106,8 +121,19 @@ export class D1CookingLogRepository implements CookingLogRepository {
       repositorySlug: input.repositorySlug,
       result: input.result,
     };
+    const usedInventoryItemIds = input.usedInventoryItemIds ?? [];
+    const eolRescueMetadata = input.eolRescueContribution
+      ? {
+          cookingLogId: input.cookingLogId,
+          recipeVersion: input.recipeVersion,
+          repositoryName: input.repositoryName,
+          repositoryOwnerHandle: input.repositoryOwnerHandle,
+          repositorySlug: input.repositorySlug,
+          rescuedItems: input.eolRescueContribution.rescuedItems,
+        }
+      : undefined;
 
-    await this.db.batch([
+    const statements = [
       this.db
         .prepare(
           `INSERT INTO cooking_logs (
@@ -125,6 +151,16 @@ export class D1CookingLogRepository implements CookingLogRepository {
           input.cookedAt,
           input.now,
         ),
+      ...usedInventoryItemIds.map((inventoryItemId) =>
+        this.db
+          .prepare(
+            `INSERT INTO cooking_log_inventory_items (
+               cooking_log_id, inventory_item_id, created_at
+             )
+             VALUES (?, ?, ?)`,
+          )
+          .bind(input.cookingLogId, inventoryItemId, input.now),
+      ),
       this.db
         .prepare(
           `INSERT INTO contribution_events (
@@ -144,7 +180,32 @@ export class D1CookingLogRepository implements CookingLogRepository {
           input.contributionVisibility,
           JSON.stringify(metadata),
         ),
-    ]);
+    ];
+    if (input.eolRescueContribution && eolRescueMetadata) {
+      statements.push(
+        this.db
+          .prepare(
+            `INSERT INTO contribution_events (
+               id, user_id, event_type, repository_id, occurred_on, occurred_at,
+               contribution_count, visibility, metadata_json
+             )
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          )
+          .bind(
+            input.eolRescueContribution.id,
+            input.userId,
+            "eol_rescued",
+            input.repositoryId,
+            input.occurredOn,
+            input.cookedAt,
+            2,
+            "private",
+            JSON.stringify(eolRescueMetadata),
+          ),
+      );
+    }
+
+    await this.db.batch(statements);
 
     return {
       contributionEvent: {
@@ -158,6 +219,20 @@ export class D1CookingLogRepository implements CookingLogRepository {
         userId: input.userId,
         visibility: input.contributionVisibility,
       },
+      eolRescueContributionEvent:
+        input.eolRescueContribution && eolRescueMetadata
+          ? {
+              contributionCount: 2,
+              eventType: "eol_rescued",
+              id: input.eolRescueContribution.id,
+              metadata: eolRescueMetadata,
+              occurredAt: input.cookedAt,
+              occurredOn: input.occurredOn,
+              repositoryId: input.repositoryId,
+              userId: input.userId,
+              visibility: "private",
+            }
+          : undefined,
       cookingLog: {
         authorDisplayName: input.authorDisplayName,
         authorHandle: input.authorHandle,

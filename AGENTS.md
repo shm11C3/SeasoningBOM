@@ -124,6 +124,7 @@ Cooking Log details can reveal life patterns. Apply repository visibility first,
 - signed-in users can additionally see their own Cooking Logs;
 - `summary_only` / `private` Cooking Log details must not be shown to third parties;
 - creating a Cooking Log should create the matching `cooking_logged` Contribution event in the same D1 batch.
+- EOL Rescue must be based on explicit owned `usedInventoryItemIds`; do not infer it from ingredient names alone.
 
 ## Expected Source Layout
 

@@ -152,7 +152,9 @@ Production rules:
 - Inventory mutations require Authorization bearer tokens. Clerk `__session` cookies are limited to protected non-mutating reads until explicit CSRF handling is added.
 - `cooking_logs` writes are handled by `D1CookingLogRepository` and exposed through `POST /api/repos/:owner/:repo/cooking-logs`.
 - Creating a cooking log also inserts a `cooking_logged` row into `contribution_events` in the same D1 batch.
+- Cooking log creation can link explicit owned `usedInventoryItemIds` through `cooking_log_inventory_items`; if any linked item is `deprecated` at `cooked_at`, the same D1 batch adds one private `eol_rescued` contribution with `contribution_count = 2`.
 - Cooking log reads follow repository visibility first, then log-author privacy: public visitors only see logs from users with `contribution_visibility = "public"`; signed-in users can additionally see their own logs.
+- Cooking log reads do not expose linked Inventory Item IDs or Inventory details to third parties.
 - Cooking log mutations require Authorization bearer tokens. Clerk `__session` cookies are not accepted for cooking-log writes.
 - Profile contribution reads are handled by `D1ContributionRepository` and exposed through `GET /api/users/:username/profile`, `GET /api/users/:username/contributions`, and `GET /api/users/:username/contributions/:date`.
 - Contribution graph counts are visible for `public` and `summary_only` profiles; `private` contribution graphs are owner-only.

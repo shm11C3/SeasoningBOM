@@ -274,6 +274,15 @@ Important:
 - `unsupported` / `hazardous` を含むレシピは推奨候補から除外する。
 - 食品安全を犠牲にしてジョークを優先しない。
 
+## EOL Rescue Contributions
+
+EOL Rescue は Cooking Log 作成時に明示された本人所有の Inventory Item だけを対象にします。
+
+- `cookedAt` を `now` として `calculateLifecycleStatus` を呼ぶ。
+- `deprecated` の Inventory Item が 1 件以上含まれる場合、private `eol_rescued` Contribution を 1 件作る。
+- `unsupported` / `hazardous` は安全側に倒し、EOL Rescue として数えない。
+- Inventory Item IDs や詳細は公開 Cooking Log / public Contribution details に含めない。
+
 ## `nom install`
 
 不足材料を買い物リスト化する機能です。

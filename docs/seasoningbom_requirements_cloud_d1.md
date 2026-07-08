@@ -352,9 +352,11 @@ MVP では以下を対象にする。
 - eol_rescued
 - repository_forked
 
-Repository 作成、レシピ内容に影響する Repository metadata 更新、Fork は、それぞれ同じ D1 batch で `recipe_created`、`recipe_updated`、`repository_forked` を `contribution_events` に記録する。公開範囲だけの変更や同一内容の保存は Contribution として数えない。Cooking Log 作成は同じ D1 batch で `cooking_logged` を記録する。`eol_rescued` は Cooking Log と Inventory の照合結果から追加記録する。
+Repository 作成、レシピ内容に影響する Repository metadata 更新、Fork は、それぞれ同じ D1 batch で `recipe_created`、`recipe_updated`、`repository_forked` を `contribution_events` に記録する。公開範囲だけの変更や同一内容の保存は Contribution として数えない。Cooking Log 作成は同じ D1 batch で `cooking_logged` を記録する。`eol_rescued` は Cooking Log 作成時に明示された本人所有の `usedInventoryItemIds` と Inventory を照合し、`cooked_at` 時点で `deprecated` の食材が含まれる場合に追加記録する。`unsupported` / `hazardous` は安全側に倒して EOL Rescue として数えない。
 
 Private Repository 由来の Contribution event は、ユーザーの Contribution visibility 設定にかかわらず event visibility を `private` として保存する。これにより、公開プロフィールの day-level details に private repository の name / slug を露出しない。
+
+Inventory 由来の `eol_rescued` event は、ユーザーの Contribution visibility 設定にかかわらず event visibility を `private` として保存する。
 
 ### 12.3 Contribution として数えないイベント
 
@@ -702,6 +704,21 @@ CREATE TABLE cooking_logs (
 );
 ```
 
+### 15.9 cooking_log_inventory_items
+
+```sql
+CREATE TABLE cooking_log_inventory_items (
+  cooking_log_id TEXT NOT NULL,
+  inventory_item_id TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY(cooking_log_id, inventory_item_id),
+  FOREIGN KEY(cooking_log_id) REFERENCES cooking_logs(id),
+  FOREIGN KEY(inventory_item_id) REFERENCES inventory_items(id)
+);
+```
+
+Cooking Log 作成時にユーザーが明示した本人所有の Inventory Item だけを紐付ける。公開 Cooking Log 一覧ではこの紐付けや Inventory details を返さない。
+
 ## 16. API 要件
 
 ### 16.1 Auth
@@ -767,7 +784,7 @@ POST /api/repos/:owner/:repo/cooking-logs
 
 `GET` は Repository の public / private / unlisted 公開範囲を先に確認する。返却する Cooking Log 詳細は、投稿者の `contribution_visibility` が `public` のものと、閲覧者本人が投稿したものに限定する。`summary_only` / `private` のユーザーの Cooking Log 詳細を第三者へ公開しない。
 
-`POST` は Bearer token による Clerk session と bootstrapped profile を必須とする。作成時は現在の Repository version を `recipe_version` として保存し、同じ D1 batch で `cooking_logged` contribution event を 1 件作成する。
+`POST` は Bearer token による Clerk session と bootstrapped profile を必須とする。作成時は現在の Repository version を `recipe_version` として保存し、同じ D1 batch で `cooking_logged` contribution event を 1 件作成する。Request body は任意の `usedInventoryItemIds` を受け取れる。指定された ID は本人所有の Inventory Item であることを検証し、`cooking_log_inventory_items` に保存する。指定された Inventory Item のうち `cooked_at` 時点で `deprecated` のものがあれば、同じ D1 batch で private `eol_rescued` contribution event を 1 件作成し、`contribution_count = 2` とする。
 
 ### 16.6 Contributions
 
