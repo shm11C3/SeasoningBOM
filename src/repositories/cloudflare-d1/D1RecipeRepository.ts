@@ -213,10 +213,12 @@ export class D1RecipeRepository implements RecipeRepositoryMetadataRepository {
   async delete(id: string): Promise<void> {
     await this.db.batch([
       this.db
-        .prepare(`DELETE FROM ingredient_dependencies
-          WHERE component_id IN (
-            SELECT id FROM recipe_components WHERE repository_id = ?
-          )`)
+        .prepare(
+          `DELETE FROM ingredient_dependencies
+           WHERE component_id IN (
+             SELECT id FROM recipe_components WHERE repository_id = ?
+           )`,
+        )
         .bind(id),
       this.db.prepare("DELETE FROM recipe_components WHERE repository_id = ?").bind(id),
       this.db.prepare("DELETE FROM repository_stars WHERE repository_id = ?").bind(id),

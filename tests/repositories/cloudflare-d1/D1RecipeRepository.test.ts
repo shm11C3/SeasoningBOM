@@ -120,6 +120,34 @@ describe("D1RecipeRepository", () => {
     });
   });
 
+  it("persists source repository references for forks", async () => {
+    const source = await recipes.create({
+      id: "repo_source",
+      name: "Original Curry",
+      now: "2026-07-06T01:02:03.000Z",
+      ownerHandle: "test-user",
+      ownerUserId: "profile_test",
+      slug: "original-curry",
+    });
+
+    await recipes.create({
+      id: "repo_fork",
+      name: "Original Curry",
+      now: "2026-07-06T02:03:04.000Z",
+      ownerHandle: "test-user",
+      ownerUserId: "profile_test",
+      slug: "forked-curry",
+      sourceRepositoryId: source.id,
+    });
+
+    await expect(recipes.findByOwnerAndSlug("test-user", "forked-curry")).resolves.toEqual(
+      expect.objectContaining({
+        id: "repo_fork",
+        sourceRepositoryId: "repo_source",
+      }),
+    );
+  });
+
   it("deletes repository metadata", async () => {
     await recipes.create({
       id: "repo_test",
@@ -135,23 +163,23 @@ describe("D1RecipeRepository", () => {
     await expect(recipes.findByOwnerAndSlug("test-user", "curry-rice")).resolves.toBeNull();
   });
 
-  it("deletes repository child rows before deleting repository metadata", async () => {
+  it("deletes related repository records before repository metadata", async () => {
     await recipes.create({
-      id: "repo_source",
-      name: "Source Curry",
+      id: "repo_test",
+      name: "Curry Rice",
       now: "2026-07-06T01:02:03.000Z",
       ownerHandle: "test-user",
       ownerUserId: "profile_test",
-      slug: "source-curry",
+      slug: "curry-rice",
     });
     await recipes.create({
       id: "repo_fork",
-      name: "Forked Curry",
+      name: "Fork Curry",
       now: "2026-07-06T01:02:03.000Z",
       ownerHandle: "test-user",
       ownerUserId: "profile_test",
-      slug: "forked-curry",
-      sourceRepositoryId: "repo_source",
+      slug: "fork-curry",
+      sourceRepositoryId: "repo_test",
     });
     sqlite
       .prepare(
@@ -162,84 +190,90 @@ describe("D1RecipeRepository", () => {
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
-        "component_source",
-        "repo_source",
+        "component_test",
+        "repo_test",
         "curry roux",
         1,
         "box",
-        "required",
+        "direct",
         1,
         "[]",
         "[]",
-        "2026-07-06T01:02:03.000Z",
-        "2026-07-06T01:02:03.000Z",
+        "2026-07-06T02:03:04.000Z",
+        "2026-07-06T02:03:04.000Z",
       );
     sqlite
       .prepare(
         `INSERT INTO ingredient_dependencies (
            id, component_id, dependency_name, dependency_type, allergens_json, notes
-         )
+        )
          VALUES (?, ?, ?, ?, ?, ?)`,
       )
-      .run("dependency_source", "component_source", "milk", "transitive", "[]", null);
-    sqlite
-      .prepare("INSERT INTO repository_stars (user_id, repository_id, created_at) VALUES (?, ?, ?)")
-      .run("profile_test", "repo_source", "2026-07-06T01:02:03.000Z");
+      .run("dependency_test", "component_test", "wheat", "transitive", '["wheat"]', null);
     sqlite
       .prepare(
-        `INSERT INTO contribution_events (
-           id, user_id, event_type, repository_id, occurred_on, occurred_at
-         )
-         VALUES (?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO repository_stars (user_id, repository_id, created_at)
+         VALUES (?, ?, ?)`,
       )
-      .run(
-        "contribution_source",
-        "profile_test",
-        "component_added",
-        "repo_source",
-        "2026-07-06",
-        "2026-07-06T01:02:03.000Z",
-      );
+      .run("profile_test", "repo_test", "2026-07-06T03:04:05.000Z");
     sqlite
       .prepare(
         `INSERT INTO cooking_logs (
-           id, user_id, repository_id, recipe_version, result, cooked_at, created_at
+           id, user_id, repository_id, recipe_version, result, notes, cooked_at, created_at
          )
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
-        "cooking_source",
+        "cook_test",
         "profile_test",
-        "repo_source",
+        "repo_test",
         "0.1.0",
-        "success",
-        "2026-07-06T01:02:03.000Z",
-        "2026-07-06T01:02:03.000Z",
+        "cooked",
+        null,
+        "2026-07-06T04:05:06.000Z",
+        "2026-07-06T05:06:07.000Z",
+      );
+    sqlite
+      .prepare(
+        `INSERT INTO contribution_events (
+           id, user_id, event_type, repository_id, occurred_on, occurred_at,
+           contribution_count, visibility, metadata_json
+         )
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        "contribution_test",
+        "profile_test",
+        "cooking_logged",
+        "repo_test",
+        "2026-07-06",
+        "2026-07-06T04:05:06.000Z",
+        1,
+        "summary_only",
+        "{}",
       );
 
-    await recipes.delete("repo_source");
+    await recipes.delete("repo_test");
 
-    await expect(recipes.findByOwnerAndSlug("test-user", "source-curry")).resolves.toBeNull();
-    await expect(recipes.findByOwnerAndSlug("test-user", "forked-curry")).resolves.toEqual(
-      expect.objectContaining({
-        id: "repo_fork",
-        sourceRepositoryId: undefined,
-      }),
-    );
-    expect(sqlite.prepare("SELECT COUNT(*) AS count FROM recipe_components").get()).toEqual({
+    expect(sqlite.prepare("SELECT COUNT(*) AS count FROM ingredient_dependencies").get()).toEqual({
       count: 0,
     });
-    expect(sqlite.prepare("SELECT COUNT(*) AS count FROM ingredient_dependencies").get()).toEqual({
+    expect(sqlite.prepare("SELECT COUNT(*) AS count FROM recipe_components").get()).toEqual({
       count: 0,
     });
     expect(sqlite.prepare("SELECT COUNT(*) AS count FROM repository_stars").get()).toEqual({
       count: 0,
     });
+    expect(sqlite.prepare("SELECT COUNT(*) AS count FROM cooking_logs").get()).toEqual({
+      count: 0,
+    });
     expect(sqlite.prepare("SELECT COUNT(*) AS count FROM contribution_events").get()).toEqual({
       count: 0,
     });
-    expect(sqlite.prepare("SELECT COUNT(*) AS count FROM cooking_logs").get()).toEqual({
-      count: 0,
+    await expect(recipes.findByOwnerAndSlug("test-user", "curry-rice")).resolves.toBeNull();
+    await expect(recipes.findByOwnerAndSlug("test-user", "fork-curry")).resolves.toMatchObject({
+      id: "repo_fork",
+      sourceRepositoryId: undefined,
     });
   });
 

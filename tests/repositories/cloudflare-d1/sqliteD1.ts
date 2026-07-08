@@ -40,20 +40,20 @@ function createStatement(
   values: D1Value[] = [],
 ): D1PreparedStatement {
   const sqliteValues = values.map(toSqliteValue);
+  const statement = db.prepare(query);
 
   return {
     all: async <T = unknown>() => {
-      const results = db.prepare(query).all(...sqliteValues) as T[];
+      const results = statement.all(...sqliteValues) as T[];
       return { results, success: true } satisfies D1Result<T>;
     },
     bind: (...nextValues) => createStatement(db, query, nextValues),
-    first: async <T = unknown>() =>
-      (db.prepare(query).get(...sqliteValues) as T | undefined) ?? null,
+    first: async <T = unknown>() => (statement.get(...sqliteValues) as T | undefined) ?? null,
     raw: async <_T = unknown>() => {
       throw new Error("raw is not implemented in this test adapter");
     },
     run: async <T = unknown>() => {
-      const result = db.prepare(query).run(...sqliteValues) as { changes?: bigint | number };
+      const result = statement.run(...sqliteValues) as { changes?: bigint | number };
       return {
         meta: { changes: Number(result.changes ?? 0) },
         success: true,

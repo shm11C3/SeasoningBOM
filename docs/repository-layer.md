@@ -103,7 +103,8 @@ src/repositories/cloudflare-d1/
   D1RecipeRepository.ts
   D1RecipeComponentRepository.ts
   D1InventoryRepository.ts
-  D1StarRepository.ts
+  D1CookingLogRepository.ts
+  D1RepositoryStarRepository.ts
   D1ContributionRepository.ts
 
 src/workers/
@@ -138,9 +139,15 @@ Production rules:
 - Repository dependency reads follow the same public / unlisted / private authorization boundary as repository metadata.
 - Repository dependency replacements are owner-only and require Authorization bearer tokens. Clerk `__session` cookies are not accepted for this mutation.
 - Repository dependency replacements are capped at 38 total component/dependency rows so the D1 batch stays within the free-tier query budget after auth/profile/repository lookups.
+- Repository stars are handled by `D1RepositoryStarRepository` and Workers API handlers.
+- Repository forks create a new repository owned by the authenticated user and preserve the source repository through `recipe_repositories.source_repository_id`.
 - `inventory_items` CRUD is handled by `D1InventoryRepository` and Workers API handlers.
 - `inventory_items` are always scoped to the authenticated user; requests cannot choose another inventory owner.
 - Inventory mutations require Authorization bearer tokens. Clerk `__session` cookies are limited to protected non-mutating reads until explicit CSRF handling is added.
+- `cooking_logs` writes are handled by `D1CookingLogRepository` and exposed through `POST /api/repos/:owner/:repo/cooking-logs`.
+- Creating a cooking log also inserts a `cooking_logged` row into `contribution_events` in the same D1 batch.
+- Cooking log reads follow repository visibility first, then log-author privacy: public visitors only see logs from users with `contribution_visibility = "public"`; signed-in users can additionally see their own logs.
+- Cooking log mutations require Authorization bearer tokens. Clerk `__session` cookies are not accepted for cooking-log writes.
 - Recipe Alert queries may use Repository content only.
 - Inventory Audit queries may combine Repository content with only the viewer's Inventory.
 - D1 bindings and SQL stay inside Workers / repository implementation.

@@ -20,6 +20,10 @@ import {
   D1RecipeRepository,
   type RecipeRepositoryMetadataRepository,
 } from "../../repositories/cloudflare-d1/D1RecipeRepository";
+import {
+  D1RepositoryStarRepository,
+  type RepositoryStarRepository,
+} from "../../repositories/cloudflare-d1/D1RepositoryStarRepository";
 import type { UserProfile } from "../../repositories/cloudflare-d1/D1UserProfileRepository";
 import { authenticateClerkRequest, type ClerkAuthenticationOptions } from "../auth/clerk";
 import { type ProfileRouteOptions, requireBootstrappedProfile } from "./profile";
@@ -33,6 +37,7 @@ export type RepositoryRouteOptions = ClerkAuthenticationOptions &
     now?: () => Date;
     recipeComponents?: RecipeComponentWriteRepository;
     recipeRepositories?: RecipeRepositoryMetadataRepository;
+    repositoryStars?: RepositoryStarRepository;
   };
 
 type RepositoryResponseBody = {
@@ -46,6 +51,11 @@ type RepositoryListResponseBody = {
 type RepositoryDependenciesResponseBody = {
   repository: SerializedRepository;
   components: SerializedRecipeComponent[];
+};
+
+type RepositoryStarResponseBody = {
+  starred: true;
+  repository: SerializedRepository;
 };
 
 type SerializedRepository = {
@@ -244,6 +254,164 @@ export async function handlePutRepositoryDependencies(
     } satisfies RepositoryDependenciesResponseBody);
   } catch {
     return serverError("Failed to update dependencies.");
+  }
+}
+
+export async function handlePostRepositoryStar(
+  request: Request,
+  ownerHandle: string,
+  slug: string,
+  owner: UserProfile,
+  env: WorkerEnv,
+  options: RepositoryRouteOptions = {},
+): Promise<Response> {
+  const repositories = getRecipeRepository(env, options);
+  const stars = getRepositoryStarRepository(env, options);
+  const repositoryResult = await findReadableRepository(
+    request,
+    repositories,
+    ownerHandle,
+    slug,
+    env,
+    options,
+    "Failed to star repository.",
+  );
+  if (!repositoryResult.ok) {
+    return repositoryResult.response;
+  }
+
+  const now = (options.now?.() ?? new Date()).toISOString();
+  try {
+    await stars.star({
+      repositoryId: repositoryResult.repository.id,
+      userId: owner.id,
+      now,
+    });
+
+    return jsonResponse(
+      {
+        repository: serializeRepository(repositoryResult.repository),
+        starred: true,
+      } satisfies RepositoryStarResponseBody,
+      { status: 201 },
+    );
+  } catch {
+    return serverError("Failed to star repository.");
+  }
+}
+
+export async function handleDeleteRepositoryStar(
+  request: Request,
+  ownerHandle: string,
+  slug: string,
+  owner: UserProfile,
+  env: WorkerEnv,
+  options: RepositoryRouteOptions = {},
+): Promise<Response> {
+  const repositories = getRecipeRepository(env, options);
+  const stars = getRepositoryStarRepository(env, options);
+  const repositoryResult = await findReadableRepository(
+    request,
+    repositories,
+    ownerHandle,
+    slug,
+    env,
+    options,
+    "Failed to unstar repository.",
+  );
+  if (!repositoryResult.ok) {
+    return repositoryResult.response;
+  }
+
+  try {
+    await stars.unstar({
+      repositoryId: repositoryResult.repository.id,
+      userId: owner.id,
+    });
+
+    return new Response(null, { status: 204 });
+  } catch {
+    return serverError("Failed to unstar repository.");
+  }
+}
+
+export async function handlePostRepositoryFork(
+  ownerHandle: string,
+  slug: string,
+  owner: UserProfile,
+  env: WorkerEnv,
+  options: RepositoryRouteOptions = {},
+): Promise<Response> {
+  const repositories = getRecipeRepository(env, options);
+
+  let sourceRepository: CloudRecipeRepository | null;
+  try {
+    sourceRepository = await repositories.findByOwnerAndSlug(ownerHandle, slug);
+  } catch {
+    return serverError("Failed to fork repository.");
+  }
+
+  if (
+    !sourceRepository ||
+    (sourceRepository.visibility !== "public" && sourceRepository.visibility !== "unlisted")
+  ) {
+    return repositoryNotFound();
+  }
+
+  let existingRepository: CloudRecipeRepository | null;
+  try {
+    existingRepository = await repositories.findByOwnerAndSlug(
+      owner.username,
+      sourceRepository.slug,
+    );
+  } catch {
+    return serverError("Failed to fork repository.");
+  }
+  if (existingRepository) {
+    return conflict(
+      "repository_already_exists",
+      "A repository with this owner and slug already exists.",
+    );
+  }
+
+  const now = (options.now?.() ?? new Date()).toISOString();
+  const id = options.createRepositoryId?.() ?? crypto.randomUUID();
+
+  try {
+    const repository = await repositories.create({
+      description: sourceRepository.description,
+      id,
+      license: sourceRepository.license,
+      name: sourceRepository.name,
+      now,
+      ownerHandle: owner.username,
+      ownerUserId: owner.id,
+      readme: sourceRepository.readme,
+      servings: sourceRepository.servings,
+      slug: sourceRepository.slug,
+      sourceRepositoryId: sourceRepository.id,
+      version: sourceRepository.version,
+      visibility: "public",
+    });
+
+    return jsonResponse(serializeRepositoryResponse(repository), { status: 201 });
+  } catch {
+    try {
+      const repositoryAfterCreate = await repositories.findByOwnerAndSlug(
+        owner.username,
+        sourceRepository.slug,
+      );
+      if (repositoryAfterCreate) {
+        return conflict(
+          "repository_already_exists",
+          "A repository with this owner and slug already exists.",
+        );
+      }
+    } catch {
+      return serverError("Failed to fork repository.");
+    }
+
+    return serverError("Failed to fork repository.");
   }
 }
 
@@ -1022,6 +1190,13 @@ async function readRepositoryDependenciesBody(
   } catch {
     return { message: "Request body must be valid JSON.", ok: false };
   }
+}
+
+function getRepositoryStarRepository(
+  env: WorkerEnv,
+  options: RepositoryRouteOptions,
+): RepositoryStarRepository {
+  return options.repositoryStars ?? new D1RepositoryStarRepository(env.DB);
 }
 
 async function readRepositoryBody(

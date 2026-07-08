@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type {
+  CloudContributionEvent,
+  CloudCookingLog,
+  CookingLogRepository,
+  CreateCookingLogWithContributionInput,
+} from "../../repositories/cloudflare-d1/D1CookingLogRepository";
+import type {
   CloudInventoryItem,
   CreateInventoryItemInput,
   InventoryItemRepository,
@@ -11,6 +17,7 @@ import type {
   CreateRecipeRepositoryInput,
   RecipeRepositoryMetadataRepository,
 } from "../../repositories/cloudflare-d1/D1RecipeRepository";
+import type { RepositoryStarRepository } from "../../repositories/cloudflare-d1/D1RepositoryStarRepository";
 import type {
   UserProfile,
   UserProfileRepository,
@@ -122,6 +129,17 @@ const recipeComponent = {
   ],
   unit: "box",
 } satisfies Awaited<ReturnType<RecipeComponentWriteRepository["listByRepositoryId"]>>[number];
+
+const cookingLog: CloudCookingLog = {
+  authorHandle: "public-cook",
+  cookedAt: "2026-07-06T04:05:06.000Z",
+  createdAt: "2026-07-06T05:06:07.000Z",
+  id: "cook_public",
+  recipeVersion: "1.0.0",
+  repositoryId: "repo_public",
+  result: "cooked",
+  userId: "profile_other",
+};
 
 async function parseJson(response: Response) {
   return response.json() as Promise<unknown>;
@@ -645,6 +663,344 @@ describe("Worker API router", () => {
     });
     expect(response.status).toBe(405);
     expect(response.headers.get("allow")).toBe("GET, PUT");
+  });
+
+  it("returns repository cooking logs through the concrete Hono route", async () => {
+    const response = await handleApiRequest(
+      new Request("https://example.test/api/repos/test-user/public-curry/cooking-logs"),
+      env,
+      {
+        cookingLogs: createCookingLogRepository([cookingLog]),
+        recipeRepositories: createRecipeRepository([publicRecipeRepository]),
+      },
+    );
+
+    await expect(parseJson(response)).resolves.toEqual({
+      cookingLogs: [
+        expect.objectContaining({
+          authorHandle: "public-cook",
+          id: "cook_public",
+          result: "cooked",
+        }),
+      ],
+      repository: expect.objectContaining({
+        id: "repo_public",
+        slug: "public-curry",
+      }),
+    });
+    expect(response.status).toBe(200);
+  });
+
+  it("creates cooking logs through the authenticated concrete Hono route", async () => {
+    const cookingLogs = createCookingLogRepository([]);
+    const response = await handleApiRequest(
+      new Request("https://example.test/api/repos/test-user/public-curry/cooking-logs", {
+        body: JSON.stringify({
+          cookedAt: "2026-07-06T04:05:06.000Z",
+          result: "cooked",
+        }),
+        headers: {
+          authorization: "Bearer fake-session",
+        },
+        method: "POST",
+      }),
+      configuredEnv,
+      {
+        ...validSessionAuth,
+        cookingLogs,
+        createContributionEventId: () => "contribution_cook",
+        createCookingLogId: () => "cook_new",
+        now: () => new Date("2026-07-06T05:06:07.000Z"),
+        recipeRepositories: createRecipeRepository([publicRecipeRepository]),
+        userProfiles: createUserProfileRepository([userProfile]),
+      },
+    );
+
+    await expect(parseJson(response)).resolves.toEqual({
+      contributionEvent: expect.objectContaining({
+        eventType: "cooking_logged",
+        id: "contribution_cook",
+        occurredOn: "2026-07-06",
+      }),
+      cookingLog: expect.objectContaining({
+        authorHandle: "test-user",
+        id: "cook_new",
+        result: "cooked",
+      }),
+      repository: expect.objectContaining({
+        id: "repo_public",
+      }),
+    });
+    expect(response.status).toBe(201);
+    await expect(
+      cookingLogs.listVisibleForRepository({ repositoryId: "repo_public" }),
+    ).resolves.toHaveLength(1);
+  });
+
+  it("requires bearer auth for cooking log mutations", async () => {
+    const response = await handleApiRequest(
+      new Request("https://example.test/api/repos/test-user/public-curry/cooking-logs", {
+        body: JSON.stringify({ result: "cooked" }),
+        headers: {
+          cookie: "__session=fake-session",
+        },
+        method: "POST",
+      }),
+      configuredEnv,
+      {
+        ...validSessionAuth,
+        cookingLogs: createCookingLogRepository([]),
+        recipeRepositories: createRecipeRepository([publicRecipeRepository]),
+        userProfiles: createUserProfileRepository([userProfile]),
+      },
+    );
+
+    await expect(parseJson(response)).resolves.toEqual({
+      error: {
+        code: "not_authenticated",
+        message: "Sign in with Clerk to access this endpoint.",
+      },
+    });
+    expect(response.status).toBe(401);
+  });
+
+  it("rejects unsupported cooking log methods with an Allow header", async () => {
+    const response = await handleApiRequest(
+      new Request("https://example.test/api/repos/test-user/public-curry/cooking-logs", {
+        method: "DELETE",
+      }),
+      env,
+    );
+
+    await expect(parseJson(response)).resolves.toEqual({
+      error: {
+        code: "method_not_allowed",
+        message: "This HTTP method is not allowed.",
+      },
+    });
+    expect(response.status).toBe(405);
+    expect(response.headers.get("allow")).toBe("GET, POST");
+  });
+
+  it("stars and unstars repositories through the concrete Hono route", async () => {
+    const repositoryStars = createRepositoryStarRepository();
+    const recipeRepositories = createRecipeRepository([publicRecipeRepository]);
+    const starResponse = await handleApiRequest(
+      new Request("https://example.test/api/repos/test-user/public-curry/star", {
+        headers: {
+          authorization: "Bearer fake-session",
+        },
+        method: "POST",
+      }),
+      configuredEnv,
+      {
+        ...validSessionAuth,
+        recipeRepositories,
+        repositoryStars,
+        userProfiles: createUserProfileRepository([userProfile]),
+      },
+    );
+    const unstarResponse = await handleApiRequest(
+      new Request("https://example.test/api/repos/test-user/public-curry/star", {
+        headers: {
+          authorization: "Bearer fake-session",
+        },
+        method: "DELETE",
+      }),
+      configuredEnv,
+      {
+        ...validSessionAuth,
+        recipeRepositories,
+        repositoryStars,
+        userProfiles: createUserProfileRepository([userProfile]),
+      },
+    );
+
+    await expect(parseJson(starResponse)).resolves.toEqual({
+      repository: expect.objectContaining({
+        id: "repo_public",
+        slug: "public-curry",
+      }),
+      starred: true,
+    });
+    expect(starResponse.status).toBe(201);
+    expect(unstarResponse.status).toBe(204);
+    expect(repositoryStars.hasStar({ repositoryId: "repo_public", userId: "profile_test" })).toBe(
+      false,
+    );
+  });
+
+  it("requires bearer auth for repository star mutations", async () => {
+    const response = await handleApiRequest(
+      new Request("https://example.test/api/repos/test-user/public-curry/star", {
+        headers: {
+          cookie: "__session=fake-session",
+        },
+        method: "POST",
+      }),
+      configuredEnv,
+      {
+        ...validSessionAuth,
+        recipeRepositories: createRecipeRepository([publicRecipeRepository]),
+        userProfiles: createUserProfileRepository([userProfile]),
+      },
+    );
+
+    await expect(parseJson(response)).resolves.toEqual({
+      error: {
+        code: "not_authenticated",
+        message: "Sign in with Clerk to access this endpoint.",
+      },
+    });
+    expect(response.status).toBe(401);
+  });
+
+  it("requires bearer auth for repository unstar and fork mutations", async () => {
+    const unstarResponse = await handleApiRequest(
+      new Request("https://example.test/api/repos/test-user/public-curry/star", {
+        headers: {
+          cookie: "__session=fake-session",
+        },
+        method: "DELETE",
+      }),
+      configuredEnv,
+      {
+        ...validSessionAuth,
+        recipeRepositories: createRecipeRepository([publicRecipeRepository]),
+        userProfiles: createUserProfileRepository([userProfile]),
+      },
+    );
+    const forkResponse = await handleApiRequest(
+      new Request("https://example.test/api/repos/test-user/public-curry/fork", {
+        headers: {
+          cookie: "__session=fake-session",
+        },
+        method: "POST",
+      }),
+      configuredEnv,
+      {
+        ...validSessionAuth,
+        recipeRepositories: createRecipeRepository([publicRecipeRepository]),
+        userProfiles: createUserProfileRepository([userProfile]),
+      },
+    );
+
+    await expect(parseJson(unstarResponse)).resolves.toEqual({
+      error: {
+        code: "not_authenticated",
+        message: "Sign in with Clerk to access this endpoint.",
+      },
+    });
+    await expect(parseJson(forkResponse)).resolves.toEqual({
+      error: {
+        code: "not_authenticated",
+        message: "Sign in with Clerk to access this endpoint.",
+      },
+    });
+    expect(unstarResponse.status).toBe(401);
+    expect(forkResponse.status).toBe(401);
+  });
+
+  it("forks repositories through the concrete Hono route", async () => {
+    const sourceRepository = {
+      ...publicRecipeRepository,
+      ownerHandle: "source-user",
+      ownerUserId: "profile_source",
+    } satisfies CloudRecipeRepository;
+    const recipeRepositories = createRecipeRepository([sourceRepository]);
+    const response = await handleApiRequest(
+      new Request("https://example.test/api/repos/source-user/public-curry/fork", {
+        headers: {
+          authorization: "Bearer fake-session",
+        },
+        method: "POST",
+      }),
+      configuredEnv,
+      {
+        ...validSessionAuth,
+        createRepositoryId: () => "repo_fork",
+        now: () => new Date("2026-07-06T02:03:04.000Z"),
+        recipeRepositories,
+        userProfiles: createUserProfileRepository([userProfile]),
+      },
+    );
+
+    await expect(parseJson(response)).resolves.toEqual({
+      repository: expect.objectContaining({
+        id: "repo_fork",
+        ownerHandle: "test-user",
+        slug: "public-curry",
+        sourceRepositoryId: "repo_public",
+      }),
+    });
+    expect(response.status).toBe(201);
+  });
+
+  it("rejects unsupported star and fork methods with Allow headers", async () => {
+    const starResponse = await handleApiRequest(
+      new Request("https://example.test/api/repos/test-user/public-curry/star"),
+      env,
+    );
+    const forkResponse = await handleApiRequest(
+      new Request("https://example.test/api/repos/test-user/public-curry/fork"),
+      env,
+    );
+
+    await expect(parseJson(starResponse)).resolves.toEqual({
+      error: {
+        code: "method_not_allowed",
+        message: "This HTTP method is not allowed.",
+      },
+    });
+    await expect(parseJson(forkResponse)).resolves.toEqual({
+      error: {
+        code: "method_not_allowed",
+        message: "This HTTP method is not allowed.",
+      },
+    });
+    expect(starResponse.status).toBe(405);
+    expect(starResponse.headers.get("allow")).toBe("POST, DELETE");
+    expect(forkResponse.status).toBe(405);
+    expect(forkResponse.headers.get("allow")).toBe("POST");
+  });
+
+  it("does not treat HEAD as a repository star or fork mutation", async () => {
+    const starResponse = await handleApiRequest(
+      new Request("https://example.test/api/repos/test-user/public-curry/star", {
+        method: "HEAD",
+      }),
+      env,
+    );
+    const forkResponse = await handleApiRequest(
+      new Request("https://example.test/api/repos/test-user/public-curry/fork", {
+        method: "HEAD",
+      }),
+      env,
+    );
+
+    expect(starResponse.status).toBe(405);
+    expect(starResponse.headers.get("allow")).toBe("POST, DELETE");
+    await expect(starResponse.text()).resolves.toBe("");
+    expect(forkResponse.status).toBe(405);
+    expect(forkResponse.headers.get("allow")).toBe("POST");
+    await expect(forkResponse.text()).resolves.toBe("");
+  });
+
+  it("returns not found for malformed repository star path parameters", async () => {
+    const response = await handleApiRequest(
+      new Request("https://example.test/api/repos/%E0%A4%A/public-curry/star", {
+        method: "POST",
+      }),
+      env,
+    );
+
+    await expect(parseJson(response)).resolves.toEqual({
+      error: {
+        code: "not_found",
+        message: "No API route matches /api/repos/%E0%A4%A/public-curry/star.",
+      },
+    });
+    expect(response.status).toBe(404);
   });
 
   it("creates repository metadata for the authenticated owner", async () => {
@@ -1285,6 +1641,31 @@ function createRecipeRepository(
   };
 }
 
+function createRepositoryStarRepository(): RepositoryStarRepository & {
+  hasStar(key: { repositoryId: string; userId: string }): boolean;
+} {
+  const stars = new Set<string>();
+
+  return {
+    hasStar(key) {
+      return stars.has(repositoryStarKey(key));
+    },
+    async isStarred(key) {
+      return stars.has(repositoryStarKey(key));
+    },
+    async star(input) {
+      stars.add(repositoryStarKey(input));
+    },
+    async unstar(key) {
+      stars.delete(repositoryStarKey(key));
+    },
+  };
+}
+
+function repositoryStarKey(key: { repositoryId: string; userId: string }): string {
+  return `${key.userId}:${key.repositoryId}`;
+}
+
 function createRecipeComponentRepository(
   initialComponents: Awaited<ReturnType<RecipeComponentWriteRepository["listByRepositoryId"]>>,
 ): RecipeComponentWriteRepository {
@@ -1366,6 +1747,50 @@ function createInventoryRepository(initialItems: CloudInventoryItem[]): Inventor
       }
       items[index] = item;
       return item;
+    },
+  };
+}
+
+function createCookingLogRepository(initialLogs: CloudCookingLog[]): CookingLogRepository {
+  const logs = [...initialLogs];
+
+  return {
+    async createWithContribution(input: CreateCookingLogWithContributionInput) {
+      const cookingLog: CloudCookingLog = {
+        authorDisplayName: input.authorDisplayName,
+        authorHandle: input.authorHandle,
+        cookedAt: input.cookedAt,
+        createdAt: input.now,
+        id: input.cookingLogId,
+        notes: input.notes,
+        recipeVersion: input.recipeVersion,
+        repositoryId: input.repositoryId,
+        result: input.result,
+        userId: input.userId,
+      };
+      const contributionEvent: CloudContributionEvent = {
+        contributionCount: 1,
+        eventType: "cooking_logged",
+        id: input.contributionEventId,
+        metadata: {
+          cookingLogId: input.cookingLogId,
+          recipeVersion: input.recipeVersion,
+          repositoryName: input.repositoryName,
+          repositoryOwnerHandle: input.repositoryOwnerHandle,
+          repositorySlug: input.repositorySlug,
+          result: input.result,
+        },
+        occurredAt: input.cookedAt,
+        occurredOn: input.occurredOn,
+        repositoryId: input.repositoryId,
+        userId: input.userId,
+        visibility: input.contributionVisibility,
+      };
+      logs.push(cookingLog);
+      return { contributionEvent, cookingLog };
+    },
+    async listVisibleForRepository(input) {
+      return logs.filter((log) => log.repositoryId === input.repositoryId);
     },
   };
 }
