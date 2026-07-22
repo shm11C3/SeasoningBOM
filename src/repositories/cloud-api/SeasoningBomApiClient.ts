@@ -112,10 +112,12 @@ export class CloudApiError extends Error {
 }
 
 type Fetch = typeof fetch;
+export type GetSessionToken = () => Promise<string | null>;
 
 export function createSeasoningBomApiClient(
   baseUrl: string | undefined,
   fetcher: Fetch = fetch,
+  getSessionToken: GetSessionToken = noSessionToken,
 ): SeasoningBomApiClient | null {
   const normalizedBaseUrl = baseUrl?.trim().replace(/\/+$/, "");
   if (!normalizedBaseUrl) {
@@ -123,9 +125,13 @@ export function createSeasoningBomApiClient(
   }
 
   const get = async <T>(path: string, signal?: AbortSignal): Promise<T> => {
+    const token = await getOptionalSessionToken(getSessionToken);
     const response = await fetcher(`${normalizedBaseUrl}${path}`, {
       credentials: "include",
-      headers: { Accept: "application/json" },
+      headers: {
+        Accept: "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
       signal,
     });
     const body = await readJson(response);
@@ -182,6 +188,18 @@ export function createSeasoningBomApiClient(
       return response.repositories;
     },
   };
+}
+
+async function noSessionToken(): Promise<null> {
+  return null;
+}
+
+async function getOptionalSessionToken(getSessionToken: GetSessionToken): Promise<string | null> {
+  try {
+    return await getSessionToken();
+  } catch {
+    return null;
+  }
 }
 
 function repositoryPath(ownerHandle: string, slug: string): string {

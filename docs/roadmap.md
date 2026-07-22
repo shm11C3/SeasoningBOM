@@ -149,6 +149,8 @@ Current implementation checkpoint:
 - `/:owner/:repo` loads repository metadata, direct and transitive dependencies, and public Recipe Alerts from the Workers API. Optional dependency or security failures do not hide successfully loaded repository metadata.
 - Cloud repository pages download the server-generated SeasoningBOM from `GET /api/repos/:owner/:repo/bom`; they do not regenerate it from browser or IndexedDB state.
 - Cloud dashboard, repository detail, and profile routes do not seed or subscribe to IndexedDB. Unmigrated edit, inventory, audit, EOL, and backup routes retain the local prototype behavior.
+- Cloud mode enables Clerk's prebuilt sign-in and user controls when `VITE_CLERK_PUBLISHABLE_KEY` is configured. Local mode does not initialize Clerk, and a missing Clerk key does not block public Cloud reads.
+- Signed-in Cloud API reads attach the current Clerk session token as a bearer token. Signed-out reads continue without an Authorization header.
 
 Deliverables:
 

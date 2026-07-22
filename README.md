@@ -58,6 +58,15 @@ pnpm build
 
 The dev server defaults to `http://127.0.0.1:5173/`.
 
+To run the Cloud frontend against a same-origin Workers API, add `.env.local`:
+
+```dotenv
+VITE_SEASONINGBOM_API_BASE_URL=/api
+VITE_CLERK_PUBLISHABLE_KEY=pk_test_your_clerk_publishable_key
+```
+
+Enable Google and GitHub social login in the Clerk application. Do not enable a SeasoningBOM-owned email/password flow. Without `VITE_SEASONINGBOM_API_BASE_URL`, the app keeps using the local IndexedDB prototype. With a Cloud API URL but no Clerk publishable key, public repository browsing remains available while sign-in is disabled.
+
 ## Tech Stack
 
 | Area | Decision |

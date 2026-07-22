@@ -19,6 +19,7 @@ import {
   RepoIcon,
   ShieldIcon,
 } from "../ui/components/TemporaryIcons";
+import { AuthControls } from "./providers/AuthProvider";
 import { useCloudApi } from "./providers/CloudApiProvider";
 import { useRepositories } from "./providers/RepositoryProvider";
 import { useRoute } from "./routes";
@@ -80,6 +81,7 @@ export function App() {
                 Backup
               </NavItem>
             </nav>
+            <AuthControls />
           </header>
           <main className="app-main">
             {seedError ? <div className="flash flash-danger">{seedError}</div> : null}

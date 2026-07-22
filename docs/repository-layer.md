@@ -212,6 +212,8 @@ The profile Cloud client starts profile, contribution, and public repository req
 
 The public repository browser uses the same API client for repository discovery, metadata, dependencies, public Recipe Alerts, and server-generated SeasoningBOM downloads. Repository metadata remains visible when optional dependency or security requests fail. Cloud public views never derive Inventory Audit details from IndexedDB, fabricate engagement counts, or fall back to local records for the same `owner + slug`.
 
+In Cloud mode, `AuthProvider` owns Clerk's React session boundary and exposes only the current session-token getter and coarse UI state to the app. `CloudApiProvider` passes that getter to the browser API client, which adds an Authorization bearer token when the user is signed in. A token refresh failure falls back to an anonymous request for public reads; protected writes added by later migration slices must require a token instead of using that fallback. Local mode does not initialize Clerk. A configured API without a Clerk publishable key remains usable for anonymous public reads but exposes no sign-in action.
+
 Example shape:
 
 ```ts

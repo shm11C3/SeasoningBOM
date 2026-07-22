@@ -99,6 +99,40 @@ describe("SeasoningBomApiClient", () => {
     );
   });
 
+  it("adds the current Clerk session token when one is available", async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ repositories: [] }));
+    const getSessionToken = vi.fn().mockResolvedValue("session-token");
+    const client = createSeasoningBomApiClient("/api", fetcher, getSessionToken);
+
+    await expect(client?.listPublicRepositories()).resolves.toEqual([]);
+
+    expect(getSessionToken).toHaveBeenCalledOnce();
+    expect(fetcher).toHaveBeenCalledWith(
+      "/api/repos",
+      expect.objectContaining({
+        headers: {
+          Accept: "application/json",
+          Authorization: "Bearer session-token",
+        },
+      }),
+    );
+  });
+
+  it("keeps public reads available when Clerk cannot refresh a token", async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ repositories: [] }));
+    const client = createSeasoningBomApiClient(
+      "/api",
+      fetcher,
+      vi.fn().mockRejectedValue(new Error("Clerk offline")),
+    );
+
+    await expect(client?.listPublicRepositories()).resolves.toEqual([]);
+    expect(fetcher).toHaveBeenCalledWith(
+      "/api/repos",
+      expect.objectContaining({ headers: { Accept: "application/json" } }),
+    );
+  });
+
   it("uses safe fallback errors for malformed error responses", async () => {
     const fetcher = vi
       .fn<typeof fetch>()

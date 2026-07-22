@@ -113,6 +113,20 @@ textarea {
   background: rgba(255, 255, 255, 0.12);
 }
 
+.auth-controls {
+  display: flex;
+  min-width: 32px;
+  min-height: 32px;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.auth-status {
+  color: #d0d7de;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
 .app-main {
   width: min(1180px, calc(100vw - 32px));
   margin: 0 auto;
@@ -645,6 +659,10 @@ textarea {
   .contribution-header {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .auth-controls {
+    justify-content: flex-start;
   }
 
   .inventory-row,
