@@ -193,7 +193,7 @@ Privacy:
 
 ## Inventory Screen
 
-Displays fridge inventory as dependency packages installed locally.
+Displays fridge inventory as installed dependency packages. Cloud mode stores this list privately in D1 for the signed-in user; local prototype mode stores it in IndexedDB.
 
 Suggested copy:
 
@@ -210,6 +210,8 @@ Columns:
 - use by / unsupported date
 - lifecycle status
 - actions
+
+Cloud mode must not request or render Inventory rows before Clerk authentication and User Handle bootstrap are ready.
 
 ## Security Alerts Screen
 

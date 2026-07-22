@@ -1,18 +1,32 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { CloudApiProvider } from "../../app/providers/CloudApiProvider";
+import type { SeasoningBomApiClient } from "../../repositories/cloud-api/SeasoningBomApiClient";
+import { createCloudApiClientMock } from "../../test/factories/cloudApiFactories";
 import { makeInventoryItem, makeSettings } from "../../test/factories/domainFactories";
 import { InventoryPage } from "./InventoryPage";
 
 const liveDataMock = vi.hoisted(() => ({
   current: null as unknown,
 }));
+const cloudProfileMock = vi.hoisted(() => ({
+  current: { profile: null, status: "disabled" } as unknown,
+}));
 
 vi.mock("../useLiveData", () => ({
   useLiveData: () => liveDataMock.current,
 }));
 
+vi.mock("../../app/providers/CloudProfileProvider", () => ({
+  useCloudProfile: () => cloudProfileMock.current,
+}));
+
 describe("InventoryPage", () => {
+  beforeEach(() => {
+    cloudProfileMock.current = { profile: null, status: "disabled" };
+  });
+
   it("validates, saves, edits, cancels, and deletes inventory items", async () => {
     const user = userEvent.setup();
     const save = vi.fn().mockResolvedValue(undefined);
@@ -109,4 +123,86 @@ describe("InventoryPage", () => {
       }),
     );
   });
+
+  it("loads and mutates only the signed-in user's cloud inventory", async () => {
+    const user = userEvent.setup();
+    const rice = makeInventoryItem({ id: "inventory-rice", name: "rice", quantity: 2 });
+    const carrot = makeInventoryItem({ id: "inventory-carrot", name: "carrot", quantity: 3 });
+    const updatedRice = { ...rice, quantity: 4 };
+    const createInventoryItem = vi.fn().mockResolvedValue(carrot);
+    const deleteInventoryItem = vi.fn().mockResolvedValue(undefined);
+    const listInventory = vi.fn().mockResolvedValue([rice]);
+    const updateInventoryItem = vi.fn().mockResolvedValue(updatedRice);
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    cloudProfileMock.current = {
+      profile: { username: "test-cook" },
+      status: "ready",
+    };
+    const client = createCloudApiClientMock({
+      createInventoryItem,
+      deleteInventoryItem,
+      listInventory,
+      updateInventoryItem,
+    });
+
+    renderCloudInventory(client);
+
+    expect(await screen.findByText(/visible only to you/)).toBeInTheDocument();
+    await user.type(screen.getByLabelText("Name"), "carrot");
+    await user.clear(screen.getByLabelText("Quantity"));
+    await user.type(screen.getByLabelText("Quantity"), "3");
+    await user.click(screen.getByRole("button", { name: "Add ingredient" }));
+    await waitFor(() =>
+      expect(createInventoryItem).toHaveBeenCalledWith(
+        expect.objectContaining({ name: "carrot", quantity: 3 }),
+      ),
+    );
+    expect(await screen.findByText("carrot")).toBeInTheDocument();
+
+    await user.click(screen.getAllByRole("button", { name: "Edit" })[0]);
+    await user.clear(screen.getByLabelText("Quantity"));
+    await user.type(screen.getByLabelText("Quantity"), "4");
+    await user.click(screen.getByRole("button", { name: "Save ingredient" }));
+    await waitFor(() =>
+      expect(updateInventoryItem).toHaveBeenCalledWith(
+        "inventory-rice",
+        expect.objectContaining({ name: "rice", quantity: 4 }),
+      ),
+    );
+
+    await user.click(screen.getAllByRole("button", { name: "Edit" })[0]);
+    confirm.mockReturnValue(false);
+    await user.click(screen.getAllByRole("button", { name: "Delete" })[0]);
+    expect(deleteInventoryItem).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Save ingredient" })).toBeInTheDocument();
+
+    confirm.mockReturnValue(true);
+    await user.click(screen.getAllByRole("button", { name: "Delete" })[0]);
+    await waitFor(() => expect(deleteInventoryItem).toHaveBeenCalledWith("inventory-rice"));
+    expect(confirm).toHaveBeenCalledWith("Delete rice from your inventory?");
+  });
+
+  it.each([
+    ["disabled", "Authentication must be configured"],
+    ["signed-out", "Sign in to manage inventory"],
+    ["needs-profile", "Finish profile setup"],
+    ["error", "private inventory could not be opened"],
+    ["loading", "Loading inventory"],
+  ])("does not request private cloud inventory for profile state %s", (status, expected) => {
+    const listInventory = vi.fn();
+    cloudProfileMock.current = { profile: null, status };
+
+    renderCloudInventory(createCloudApiClientMock({ listInventory }));
+
+    expect(screen.getByText(new RegExp(expected))).toBeInTheDocument();
+    expect(listInventory).not.toHaveBeenCalled();
+  });
 });
+
+function renderCloudInventory(client: SeasoningBomApiClient) {
+  return render(
+    <CloudApiProvider client={client}>
+      <InventoryPage />
+    </CloudApiProvider>,
+  );
+}

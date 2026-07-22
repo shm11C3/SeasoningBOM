@@ -9,6 +9,7 @@ import {
   calculateLifecycleStatus,
   generateSeasoningBOM,
   generateShoppingList,
+  type InventoryAuditResult,
   runNomAudit,
   summarizeIssues,
 } from "../../domain";
@@ -49,6 +50,12 @@ type CloudRepositoryState =
       components: CloudRecipeComponent[] | null;
       security: CloudRepositorySecurity | null;
     };
+
+type CloudInventoryAuditState =
+  | { status: "hidden" }
+  | { status: "loading" }
+  | { status: "error" }
+  | { inventoryAudit: InventoryAuditResult; status: "ready" };
 
 export function RecipeDetailPage({ ownerHandle, slug }: { ownerHandle: string; slug: string }) {
   const cloudApi = useCloudApi();
@@ -225,6 +232,9 @@ function CloudRecipeDetailPage({
   const cloudProfile = useCloudProfile();
   const [tab, setTab] = useState<Tab>("code");
   const [state, setState] = useState<CloudRepositoryState>({ status: "loading" });
+  const [inventoryAuditState, setInventoryAuditState] = useState<CloudInventoryAuditState>({
+    status: "hidden",
+  });
   const [message, setMessage] = useState<{ danger: boolean; text: string } | null>(null);
 
   useEffect(() => {
@@ -262,6 +272,32 @@ function CloudRecipeDetailPage({
 
     return () => controller.abort();
   }, [api, ownerHandle, slug]);
+
+  useEffect(() => {
+    if (cloudProfile.status !== "ready") {
+      setInventoryAuditState({ status: "hidden" });
+      return;
+    }
+    if (tab !== "security") {
+      return;
+    }
+
+    const controller = new AbortController();
+    setInventoryAuditState({ status: "loading" });
+    api.runRepositoryAudit(ownerHandle, slug, controller.signal).then(
+      ({ inventoryAudit }) => {
+        if (!controller.signal.aborted) {
+          setInventoryAuditState({ inventoryAudit, status: "ready" });
+        }
+      },
+      () => {
+        if (!controller.signal.aborted) {
+          setInventoryAuditState({ status: "error" });
+        }
+      },
+    );
+    return () => controller.abort();
+  }, [api, cloudProfile.status, ownerHandle, slug, tab]);
 
   if (state.status === "loading") {
     return <EmptyState title="Loading repository">Fetching recipe content...</EmptyState>;
@@ -397,7 +433,9 @@ function CloudRecipeDetailPage({
           />
         ) : null}
         {tab === "dependencies" ? <CloudDependenciesTab components={components} /> : null}
-        {tab === "security" ? <CloudSecurityTab security={security} /> : null}
+        {tab === "security" ? (
+          <CloudSecurityTab inventoryAuditState={inventoryAuditState} security={security} />
+        ) : null}
       </section>
     </>
   );
@@ -484,21 +522,53 @@ function CloudDependenciesTab({ components }: { components: CloudRecipeComponent
   );
 }
 
-function CloudSecurityTab({ security }: { security: CloudRepositorySecurity | null }) {
-  if (security === null) {
-    return (
-      <EmptyState title="Security alerts unavailable">
-        Public Recipe Alerts could not be loaded. Please try again.
-      </EmptyState>
-    );
-  }
-
-  const groups = groupIssuesBySeverity(security.recipeAlerts);
+function CloudSecurityTab({
+  inventoryAuditState,
+  security,
+}: {
+  inventoryAuditState: CloudInventoryAuditState;
+  security: CloudRepositorySecurity | null;
+}) {
   return (
     <div className="surface readme">
       <h2>Security alerts</h2>
-      <p className="muted">Public Recipe Alerts: {security.summary.totalIssues}.</p>
-      <IssueGroups groups={groups} title="Recipe alerts" emptyTitle="No public recipe alerts" />
+      {security === null ? (
+        <EmptyState title="Security alerts unavailable">
+          Public Recipe Alerts could not be loaded. Please try again.
+        </EmptyState>
+      ) : (
+        <>
+          <p className="muted">Public Recipe Alerts: {security.summary.totalIssues}.</p>
+          <IssueGroups
+            groups={groupIssuesBySeverity(security.recipeAlerts)}
+            title="Recipe alerts"
+            emptyTitle="No public recipe alerts"
+          />
+        </>
+      )}
+      {inventoryAuditState.status === "loading" ? (
+        <section className="section">
+          <div className="section-header">
+            <h2>Your inventory audit</h2>
+          </div>
+          <p className="muted">Checking this recipe against your private inventory...</p>
+        </section>
+      ) : null}
+      {inventoryAuditState.status === "error" ? (
+        <section className="section">
+          <div className="section-header">
+            <h2>Your inventory audit</h2>
+          </div>
+          <p className="muted">Your private inventory audit could not be loaded.</p>
+        </section>
+      ) : null}
+      {inventoryAuditState.status === "ready" ? (
+        <IssueGroups
+          groups={groupIssuesBySeverity(inventoryAuditState.inventoryAudit.issues)}
+          title="Your inventory audit"
+          emptyTitle="No private inventory audit issues"
+        />
+      ) : null}
     </div>
   );
 }

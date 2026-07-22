@@ -114,6 +114,7 @@ describe("App", () => {
     ["/", "Dashboard route"],
     ["/test-cook/recipe", "Repository route: test-cook/recipe"],
     ["/new", "Repository editor route: me/new"],
+    ["/inventory", "Inventory route"],
     ["/users/test-cook", "Profile route: test-cook"],
   ])("does not seed local repositories for cloud-backed route %s", async (path, routeText) => {
     const repositories = createMemoryRepositories();
@@ -126,7 +127,7 @@ describe("App", () => {
 
   it("seeds local repositories for routes that have not migrated to the cloud API", async () => {
     const repositories = createMemoryRepositories();
-    renderApp("/inventory", createCloudClient(), repositories);
+    renderApp("/security", createCloudClient(), repositories);
 
     await waitFor(async () => {
       await expect(repositories.recipes.findAll()).resolves.toHaveLength(2);
@@ -145,7 +146,7 @@ describe("App", () => {
           rejectSeed = reject;
         }),
     );
-    renderApp("/inventory", createCloudClient());
+    renderApp("/security", createCloudClient());
 
     await waitFor(() => expect(rejectSeed).toBeTypeOf("function"));
     act(() => navigate("/users/test-cook"));

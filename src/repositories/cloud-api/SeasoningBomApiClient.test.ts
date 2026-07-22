@@ -120,6 +120,23 @@ describe("SeasoningBomApiClient", () => {
 
   it("loads the current profile and sends authenticated repository writes", async () => {
     const repository = { id: "repo_1", ownerHandle: "test-user", slug: "curry" };
+    const inventoryItem = {
+      category: "produce",
+      createdAt: "2026-07-23T00:00:00.000Z",
+      hazardous: false,
+      id: "inventory_1",
+      name: "carrot",
+      quantity: 2,
+      unit: "piece",
+      updatedAt: "2026-07-23T00:00:00.000Z",
+    };
+    const inventoryInput = {
+      category: "produce" as const,
+      hazardous: false,
+      name: "carrot",
+      quantity: 2,
+      unit: "piece" as const,
+    };
     const writeInput = {
       components: [],
       name: "Curry",
@@ -136,7 +153,17 @@ describe("SeasoningBomApiClient", () => {
       )
       .mockResolvedValueOnce(jsonResponse({ repository }, { status: 201 }))
       .mockResolvedValueOnce(jsonResponse({ repository: { ...repository, version: "0.2.0" } }))
-      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+      .mockResolvedValueOnce(jsonResponse({ inventoryItems: [inventoryItem] }))
+      .mockResolvedValueOnce(jsonResponse({ inventoryItem }, { status: 201 }))
+      .mockResolvedValueOnce(jsonResponse({ inventoryItem: { ...inventoryItem, quantity: 3 } }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          inventoryAudit: { issues: [], summary: { totalIssues: 0 } },
+          repository,
+        }),
+      );
     const getSessionToken = vi.fn().mockResolvedValue("  session-token  ");
     const client = createSeasoningBomApiClient("/api", fetcher, getSessionToken);
 
@@ -149,6 +176,15 @@ describe("SeasoningBomApiClient", () => {
       client?.updateRepository("test-user", "curry", { ...writeInput, version: "0.2.0" }),
     ).resolves.toMatchObject({ version: "0.2.0" });
     await expect(client?.deleteRepository("test-user", "curry")).resolves.toBeUndefined();
+    await expect(client?.listInventory()).resolves.toEqual([inventoryItem]);
+    await expect(client?.createInventoryItem(inventoryInput)).resolves.toEqual(inventoryItem);
+    await expect(
+      client?.updateInventoryItem("inventory / 1", { ...inventoryInput, quantity: 3 }),
+    ).resolves.toMatchObject({ quantity: 3 });
+    await expect(client?.deleteInventoryItem("inventory / 1")).resolves.toBeUndefined();
+    await expect(client?.runRepositoryAudit("test-user", "curry")).resolves.toMatchObject({
+      inventoryAudit: { issues: [] },
+    });
 
     expect(fetcher).toHaveBeenNthCalledWith(
       2,
@@ -176,6 +212,33 @@ describe("SeasoningBomApiClient", () => {
       5,
       "/api/repos/test-user/curry",
       expect.objectContaining({ body: undefined, method: "DELETE" }),
+    );
+    expect(fetcher).toHaveBeenNthCalledWith(
+      6,
+      "/api/inventory",
+      expect.objectContaining({
+        headers: expect.objectContaining({ Authorization: "Bearer session-token" }),
+      }),
+    );
+    expect(fetcher).toHaveBeenNthCalledWith(
+      7,
+      "/api/inventory",
+      expect.objectContaining({ body: JSON.stringify(inventoryInput), method: "POST" }),
+    );
+    expect(fetcher).toHaveBeenNthCalledWith(
+      8,
+      "/api/inventory/inventory%20%2F%201",
+      expect.objectContaining({ method: "PATCH" }),
+    );
+    expect(fetcher).toHaveBeenNthCalledWith(
+      9,
+      "/api/inventory/inventory%20%2F%201",
+      expect.objectContaining({ method: "DELETE" }),
+    );
+    expect(fetcher).toHaveBeenNthCalledWith(
+      10,
+      "/api/repos/test-user/curry/audit",
+      expect.objectContaining({ body: undefined, method: "POST" }),
     );
   });
 

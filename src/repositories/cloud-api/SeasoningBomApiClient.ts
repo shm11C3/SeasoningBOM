@@ -1,9 +1,13 @@
 import type {
   AuditSummary,
+  IngredientCategory,
+  InventoryAuditResult,
+  InventoryItem,
   RecipeAlert,
   RecipeComponent,
   RecipeRepositoryEntity,
   SeasoningBOM,
+  Unit,
 } from "../../domain";
 
 export type CloudUserProfile = {
@@ -77,6 +81,23 @@ export type CloudRepositorySecurity = {
   summary: AuditSummary;
 };
 
+export type CloudRepositoryAudit = {
+  inventoryAudit: InventoryAuditResult;
+  repository: CloudRepository;
+};
+
+export type CloudInventoryItem = InventoryItem;
+
+export type CloudInventoryWriteInput = {
+  bestBeforeDate?: string;
+  category: IngredientCategory;
+  hazardous: boolean;
+  name: string;
+  quantity: number;
+  unit: Unit;
+  useByDate?: string;
+};
+
 export type CloudProfileBootstrapInput = {
   avatarUrl?: string;
   displayName?: string;
@@ -97,7 +118,9 @@ export type CloudRepositoryWriteInput = {
 
 export interface SeasoningBomApiClient {
   bootstrapProfile(input: CloudProfileBootstrapInput): Promise<CloudUserProfile>;
+  createInventoryItem(input: CloudInventoryWriteInput): Promise<CloudInventoryItem>;
   createRepository(input: CloudRepositoryWriteInput): Promise<CloudRepository>;
+  deleteInventoryItem(id: string): Promise<void>;
   deleteRepository(ownerHandle: string, slug: string): Promise<void>;
   getCurrentProfile(signal?: AbortSignal): Promise<CloudUserProfile>;
   getPublicProfile(username: string, signal?: AbortSignal): Promise<CloudUserProfile>;
@@ -119,7 +142,14 @@ export interface SeasoningBomApiClient {
     slug: string,
     signal?: AbortSignal,
   ): Promise<CloudRepositorySecurity>;
+  listInventory(signal?: AbortSignal): Promise<CloudInventoryItem[]>;
   listPublicRepositories(signal?: AbortSignal): Promise<CloudRepository[]>;
+  runRepositoryAudit(
+    ownerHandle: string,
+    slug: string,
+    signal?: AbortSignal,
+  ): Promise<CloudRepositoryAudit>;
+  updateInventoryItem(id: string, input: CloudInventoryWriteInput): Promise<CloudInventoryItem>;
   updateRepository(
     ownerHandle: string,
     slug: string,
@@ -175,6 +205,7 @@ export function createSeasoningBomApiClient(
     method: "DELETE" | "PATCH" | "POST",
     path: string,
     body?: unknown,
+    signal?: AbortSignal,
   ): Promise<T> => {
     const token = await getRequiredSessionToken(getSessionToken);
     const response = await fetcher(`${normalizedBaseUrl}${path}`, {
@@ -186,6 +217,7 @@ export function createSeasoningBomApiClient(
         ...(typeof body === "undefined" ? {} : { "Content-Type": "application/json" }),
       },
       method,
+      signal,
     });
     const responseBody = response.status === 204 ? undefined : await readJson(response);
 
@@ -205,6 +237,17 @@ export function createSeasoningBomApiClient(
     async createRepository(input) {
       const response = await mutate<{ repository: CloudRepository }>("POST", "/repos", input);
       return response.repository;
+    },
+    async createInventoryItem(input) {
+      const response = await mutate<{ inventoryItem: CloudInventoryItem }>(
+        "POST",
+        "/inventory",
+        input,
+      );
+      return response.inventoryItem;
+    },
+    deleteInventoryItem(id) {
+      return mutate<void>("DELETE", inventoryItemPath(id));
     },
     deleteRepository(ownerHandle, slug) {
       return mutate<void>("DELETE", repositoryPath(ownerHandle, slug));
@@ -251,9 +294,29 @@ export function createSeasoningBomApiClient(
     getRepositorySecurity(ownerHandle, slug, signal) {
       return get<CloudRepositorySecurity>(`${repositoryPath(ownerHandle, slug)}/security`, signal);
     },
+    async listInventory(signal) {
+      const response = await get<{ inventoryItems: CloudInventoryItem[] }>("/inventory", signal);
+      return response.inventoryItems;
+    },
     async listPublicRepositories(signal) {
       const response = await get<{ repositories: CloudRepository[] }>("/repos", signal);
       return response.repositories;
+    },
+    runRepositoryAudit(ownerHandle, slug, signal) {
+      return mutate<CloudRepositoryAudit>(
+        "POST",
+        `${repositoryPath(ownerHandle, slug)}/audit`,
+        undefined,
+        signal,
+      );
+    },
+    async updateInventoryItem(id, input) {
+      const response = await mutate<{ inventoryItem: CloudInventoryItem }>(
+        "PATCH",
+        inventoryItemPath(id),
+        input,
+      );
+      return response.inventoryItem;
     },
     async updateRepository(ownerHandle, slug, input) {
       const response = await mutate<{ repository: CloudRepository }>(
@@ -272,7 +335,7 @@ async function noSessionToken(): Promise<null> {
 
 async function getOptionalSessionToken(getSessionToken: GetSessionToken): Promise<string | null> {
   try {
-    return await getSessionToken();
+    return (await getSessionToken())?.trim() || null;
   } catch {
     return null;
   }
@@ -295,6 +358,10 @@ async function getRequiredSessionToken(getSessionToken: GetSessionToken): Promis
 
 function repositoryPath(ownerHandle: string, slug: string): string {
   return `/repos/${encodeURIComponent(ownerHandle)}/${encodeURIComponent(slug)}`;
+}
+
+function inventoryItemPath(id: string): string {
+  return `/inventory/${encodeURIComponent(id)}`;
 }
 
 async function readJson(response: Response): Promise<unknown> {

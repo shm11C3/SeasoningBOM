@@ -152,10 +152,11 @@ Current implementation checkpoint:
 - Cloud mode enables Clerk's prebuilt sign-in and user controls when `VITE_CLERK_PUBLISHABLE_KEY` is configured. Local mode does not initialize Clerk, and a missing Clerk key does not block public Cloud reads.
 - Cloud API reads attach the current Clerk session token as a bearer token only when token retrieval succeeds. Signed-out reads and public reads whose token refresh fails continue anonymously without an Authorization header.
 - Signed-in users bootstrap their stable User Handle through `GET /api/me` and `POST /api/me/profile`. Cloud repository create/edit/delete requires a bearer token and saves metadata plus the full dependency manifest atomically.
+- `/inventory` lists and mutates only the signed-in user's D1 inventory. Cloud mode does not seed or subscribe to IndexedDB for this route, and signed-out visitors do not request private inventory.
+- Signed-in repository viewers receive `Your inventory audit` from the protected `/audit` endpoint. Public Recipe Alerts remain a separate public response, and signed-out visitors never request or render inventory-derived audit details.
 
 Remaining deliverables:
 
-- signed-in `Your inventory audit`
 - Star and Fork interactions
 
 Exit criteria:

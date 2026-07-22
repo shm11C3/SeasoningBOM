@@ -36,7 +36,8 @@ export function App() {
     (route.name === "dashboard" ||
       route.name === "profile" ||
       route.name === "repository" ||
-      route.name === "repository-edit");
+      route.name === "repository-edit" ||
+      route.name === "inventory");
 
   useEffect(() => {
     let active = true;
