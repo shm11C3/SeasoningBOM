@@ -1,64 +1,33 @@
-import { Button } from "@primer/react";
-import type { ReactNode } from "react";
-import { cloneElement, isValidElement, useEffect, useId, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useCloudApi } from "../../app/providers/CloudApiProvider";
+import { useCloudProfile } from "../../app/providers/CloudProfileProvider";
 import { navigate } from "../../app/routes";
+import { defaultOwnerHandle, type RecipeRepositoryEntity } from "../../domain";
 import {
-  type Allergen,
-  allergens,
-  type DependencyType,
-  defaultOwnerHandle,
-  dependencyTypes,
-  type IngredientDependency,
-  type RecipeComponent,
-  type RecipeRepositoryEntity,
-  repositoryVisibilities,
-  type Unit,
-  units,
-} from "../../domain";
+  CloudApiError,
+  type CloudRecipeComponent,
+  type CloudRepository,
+  type SeasoningBomApiClient,
+} from "../../repositories/cloud-api/SeasoningBomApiClient";
 import { EmptyState } from "../../ui/components/EmptyState";
-import { PlusIcon, TrashIcon } from "../../ui/components/TemporaryIcons";
-import { createId, slugify } from "../format";
+import { createId } from "../format";
 import { useLiveData } from "../useLiveData";
+import {
+  type RecipeEditorComponent,
+  RecipeEditorForm,
+  type RecipeEditorMetadata,
+  type RecipeEditorSubmission,
+} from "./RecipeEditorForm";
 
-type RecipeDraft = {
-  name: string;
-  slug: string;
-  description: string;
-  visibility: RecipeRepositoryEntity["visibility"];
-  version: string;
-  servings: string;
-  tags: string;
-  license: string;
-  maintainer: string;
-  readme: string;
-};
-
-type ComponentDraft = {
-  id: string;
-  ingredientName: string;
-  quantity: string;
-  unit: Unit;
-  dependencyType: DependencyType;
-  required: boolean;
-  allergens: string;
-  alternatives: string;
-  transitiveDependencies: string;
-  notes: string;
-};
-
-const emptyRecipeDraft: RecipeDraft = {
-  name: "",
-  slug: "",
-  description: "",
-  visibility: "public",
-  version: "0.1.0",
-  servings: "2",
-  tags: "",
-  license: "",
-  maintainer: "me",
-  readme:
-    "# New Recipe\n\n## Build\n\n1. Checkout ingredients.\n2. Install dependencies.\n3. Deploy to table.",
-};
+type CloudEditorState =
+  | { status: "loading" }
+  | { status: "not-found" }
+  | { status: "error" }
+  | {
+      components: CloudRecipeComponent[];
+      repository: CloudRepository;
+      status: "ready";
+    };
 
 export function RecipeEditorPage({
   ownerHandle = defaultOwnerHandle,
@@ -67,436 +36,209 @@ export function RecipeEditorPage({
   ownerHandle?: string;
   slug: string;
 }) {
+  const cloudApi = useCloudApi();
+  return cloudApi ? (
+    <CloudRecipeEditorPage api={cloudApi} ownerHandle={ownerHandle} slug={slug} />
+  ) : (
+    <LocalRecipeEditorPage ownerHandle={ownerHandle} slug={slug} />
+  );
+}
+
+function LocalRecipeEditorPage({ ownerHandle, slug }: { ownerHandle: string; slug: string }) {
   const { repositories, recipes, components } = useLiveData();
   const isNew = slug === "new";
   const recipe = recipes.find((item) => item.ownerHandle === ownerHandle && item.slug === slug);
-  const existingComponents = useMemo(
-    () => (recipe ? components.filter((component) => component.recipeId === recipe.id) : []),
+  const initialComponents = useMemo<RecipeEditorComponent[]>(
+    () =>
+      recipe
+        ? components
+            .filter((component) => component.recipeId === recipe.id)
+            .map(({ recipeId: _recipeId, ...component }) => component)
+        : [],
     [components, recipe],
   );
-  const [recipeDraft, setRecipeDraft] = useState<RecipeDraft>(emptyRecipeDraft);
-  const [componentDrafts, setComponentDrafts] = useState<ComponentDraft[]>([
-    createEmptyComponentDraft(),
-  ]);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (isNew) {
-      setRecipeDraft(emptyRecipeDraft);
-      setComponentDrafts([createEmptyComponentDraft()]);
-      return;
-    }
-
-    if (!recipe) {
-      return;
-    }
-
-    setRecipeDraft({
-      name: recipe.name,
-      slug: recipe.slug,
-      description: recipe.description ?? "",
-      visibility: recipe.visibility,
-      version: recipe.version,
-      servings: String(recipe.servings),
-      tags: recipe.tags.join(", "),
-      license: recipe.license ?? "",
-      maintainer: recipe.maintainer ?? "",
-      readme: recipe.readme ?? "",
-    });
-    setComponentDrafts(
-      existingComponents.length > 0
-        ? existingComponents.map(toComponentDraft)
-        : [createEmptyComponentDraft()],
-    );
-  }, [existingComponents, isNew, recipe]);
+  const initialMetadata = useMemo(() => (recipe ? toEditorMetadata(recipe) : undefined), [recipe]);
 
   if (!isNew && !recipe) {
     return <EmptyState title="Repository not found">{slug}</EmptyState>;
   }
 
-  async function handleSave() {
-    if (!recipeDraft.name.trim()) {
-      setError("Recipe name is required.");
-      return;
-    }
-
+  async function handleSave({ components: nextComponents, metadata }: RecipeEditorSubmission) {
     const timestamp = new Date().toISOString();
     const recipeId = recipe?.id ?? createId("recipe");
-    const recipeSlug = slugify(recipeDraft.slug || recipeDraft.name);
     const savedRecipe: RecipeRepositoryEntity = {
+      ...metadata,
+      createdAt: recipe?.createdAt ?? timestamp,
       id: recipeId,
       ownerHandle,
-      name: recipeDraft.name.trim(),
-      slug: recipeSlug,
-      description: emptyToUndefined(recipeDraft.description),
-      visibility: recipeDraft.visibility,
-      version: recipeDraft.version.trim() || "0.1.0",
-      servings: Number(recipeDraft.servings) || 1,
-      tags: splitList(recipeDraft.tags),
-      license: emptyToUndefined(recipeDraft.license),
-      maintainer: emptyToUndefined(recipeDraft.maintainer),
-      readme: emptyToUndefined(recipeDraft.readme),
-      createdAt: recipe?.createdAt ?? timestamp,
       updatedAt: timestamp,
     };
-    const savedComponents = componentDrafts
-      .filter((component) => component.ingredientName.trim())
-      .map((component) => toRecipeComponent(component, recipeId));
 
     await repositories.recipes.save(savedRecipe);
-    await repositories.components.saveMany(recipeId, savedComponents);
+    await repositories.components.saveMany(
+      recipeId,
+      nextComponents.map((component) => ({ ...component, recipeId })),
+    );
     navigate(`/${savedRecipe.ownerHandle}/${savedRecipe.slug}`);
   }
 
-  function updateRecipeDraft(field: keyof RecipeDraft, value: RecipeDraft[typeof field]) {
-    setRecipeDraft((current) => ({ ...current, [field]: value }));
-  }
+  return (
+    <RecipeEditorForm
+      initialComponents={initialComponents}
+      initialMetadata={initialMetadata}
+      isNew={isNew}
+      mode="local"
+      onCancel={() => navigate(isNew ? "/" : `/${ownerHandle}/${recipe?.slug ?? slug}`)}
+      onSave={handleSave}
+    />
+  );
+}
 
-  function updateComponentDraft(id: string, patch: Partial<ComponentDraft>) {
-    setComponentDrafts((current) =>
-      current.map((component) => (component.id === id ? { ...component, ...patch } : component)),
+function CloudRecipeEditorPage({
+  api,
+  ownerHandle,
+  slug,
+}: {
+  api: SeasoningBomApiClient;
+  ownerHandle: string;
+  slug: string;
+}) {
+  const cloudProfile = useCloudProfile();
+  const isNew = slug === "new";
+  const [state, setState] = useState<CloudEditorState>({ status: "loading" });
+  const resolvedOwnerHandle = ownerHandle === "me" ? cloudProfile.profile?.username : ownerHandle;
+  const initialMetadata = useMemo(
+    () => (state.status === "ready" ? toEditorMetadata(state.repository) : undefined),
+    [state],
+  );
+
+  useEffect(() => {
+    if (isNew || cloudProfile.status !== "ready" || !resolvedOwnerHandle) {
+      return;
+    }
+    if (resolvedOwnerHandle !== cloudProfile.profile?.username) {
+      setState({ status: "not-found" });
+      return;
+    }
+
+    const controller = new AbortController();
+    setState({ status: "loading" });
+    Promise.all([
+      api.getRepository(resolvedOwnerHandle, slug, controller.signal),
+      api.getRepositoryDependencies(resolvedOwnerHandle, slug, controller.signal),
+    ]).then(
+      ([repository, dependencies]) => {
+        if (!controller.signal.aborted) {
+          setState({ components: dependencies.components, repository, status: "ready" });
+        }
+      },
+      (error: unknown) => {
+        if (!controller.signal.aborted) {
+          setState({
+            status: error instanceof CloudApiError && error.status === 404 ? "not-found" : "error",
+          });
+        }
+      },
+    );
+
+    return () => controller.abort();
+  }, [api, cloudProfile.profile?.username, cloudProfile.status, isNew, resolvedOwnerHandle, slug]);
+
+  if (cloudProfile.status === "loading") {
+    return <EmptyState title="Loading account">Checking repository access...</EmptyState>;
+  }
+  if (cloudProfile.status === "signed-out") {
+    return <EmptyState title="Sign in required">Sign in to create or edit a recipe.</EmptyState>;
+  }
+  if (cloudProfile.status === "needs-profile") {
+    return <EmptyState title="User Handle required">Reserve your User Handle first.</EmptyState>;
+  }
+  if (cloudProfile.status !== "ready" || !cloudProfile.profile || !resolvedOwnerHandle) {
+    return (
+      <EmptyState title="Repository editor unavailable">
+        Your account could not be prepared for editing.
+      </EmptyState>
+    );
+  }
+  if (resolvedOwnerHandle !== cloudProfile.profile.username) {
+    return (
+      <EmptyState title="Repository not found">Only the owner can edit this repository.</EmptyState>
+    );
+  }
+  if (!isNew && state.status === "loading") {
+    return <EmptyState title="Loading repository">Fetching recipe content...</EmptyState>;
+  }
+  if (!isNew && state.status === "not-found") {
+    return <EmptyState title="Repository not found">{slug}</EmptyState>;
+  }
+  if (!isNew && state.status === "error") {
+    return (
+      <EmptyState title="Repository unavailable">
+        The repository could not be loaded. Please try again.
+      </EmptyState>
     );
   }
 
+  const existing = !isNew && state.status === "ready" ? state : null;
+  const editableOwnerHandle = resolvedOwnerHandle;
+
+  async function handleSave({ components, metadata }: RecipeEditorSubmission) {
+    const input = {
+      components: components.map(toCloudRecipeComponent),
+      description: metadata.description,
+      license: metadata.license,
+      name: metadata.name,
+      readme: metadata.readme,
+      servings: metadata.servings,
+      slug: metadata.slug,
+      version: metadata.version,
+      visibility: metadata.visibility,
+    };
+    const repository = isNew
+      ? await api.createRepository(input)
+      : await api.updateRepository(editableOwnerHandle, slug, input);
+    navigate(`/${repository.ownerHandle}/${repository.slug}`);
+  }
+
   return (
-    <>
-      <div className="page-heading">
-        <div>
-          <h1>{isNew ? "New recipe repository" : `Edit ${recipeDraft.name}`}</h1>
-          <p>Recipe metadata and dependency manifest.</p>
-        </div>
-        <div className="action-row">
-          <Button
-            type="button"
-            onClick={() => navigate(isNew ? "/" : `/${ownerHandle}/${recipeDraft.slug}`)}
-          >
-            Cancel
-          </Button>
-          <Button type="button" variant="primary" onClick={handleSave}>
-            Save changes
-          </Button>
-        </div>
-      </div>
-
-      {error ? <div className="flash flash-danger">{error}</div> : null}
-
-      <section className="surface readme">
-        <div className="form-grid">
-          <Field className="span-4" label="Name">
-            <input
-              value={recipeDraft.name}
-              onChange={(event) => {
-                const name = event.target.value;
-                updateRecipeDraft("name", name);
-                if (!recipeDraft.slug.trim()) {
-                  updateRecipeDraft("slug", slugify(name));
-                }
-              }}
-            />
-          </Field>
-          <Field className="span-4" label="Slug">
-            <input
-              value={recipeDraft.slug}
-              onChange={(event) => updateRecipeDraft("slug", event.target.value)}
-            />
-          </Field>
-          <Field className="span-2" label="Version">
-            <input
-              value={recipeDraft.version}
-              onChange={(event) => updateRecipeDraft("version", event.target.value)}
-            />
-          </Field>
-          <Field className="span-2" label="Servings">
-            <input
-              min="1"
-              type="number"
-              value={recipeDraft.servings}
-              onChange={(event) => updateRecipeDraft("servings", event.target.value)}
-            />
-          </Field>
-          <Field className="span-6" label="Description">
-            <input
-              value={recipeDraft.description}
-              onChange={(event) => updateRecipeDraft("description", event.target.value)}
-            />
-          </Field>
-          <Field className="span-3" label="Visibility">
-            <select
-              value={recipeDraft.visibility}
-              onChange={(event) =>
-                updateRecipeDraft(
-                  "visibility",
-                  event.target.value as RecipeRepositoryEntity["visibility"],
-                )
-              }
-            >
-              {repositoryVisibilities.map((visibility) => (
-                <option key={visibility} value={visibility}>
-                  {visibility}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <Field className="span-3" label="Maintainer">
-            <input
-              value={recipeDraft.maintainer}
-              onChange={(event) => updateRecipeDraft("maintainer", event.target.value)}
-            />
-          </Field>
-          <Field className="span-3" label="Recipe license">
-            <input
-              value={recipeDraft.license}
-              onChange={(event) => updateRecipeDraft("license", event.target.value)}
-            />
-          </Field>
-          <Field className="span-12" label="Tags">
-            <input
-              value={recipeDraft.tags}
-              onChange={(event) => updateRecipeDraft("tags", event.target.value)}
-            />
-          </Field>
-          <Field className="span-12" label="README">
-            <textarea
-              value={recipeDraft.readme}
-              onChange={(event) => updateRecipeDraft("readme", event.target.value)}
-            />
-          </Field>
-        </div>
-      </section>
-
-      <section className="section">
-        <div className="section-header">
-          <h2>Dependencies</h2>
-          <Button
-            type="button"
-            onClick={() =>
-              setComponentDrafts((current) => [...current, createEmptyComponentDraft()])
-            }
-          >
-            <PlusIcon /> Add dependency
-          </Button>
-        </div>
-        <div className="inventory-table">
-          {componentDrafts.map((component) => (
-            <div className="component-editor" key={component.id}>
-              <div className="form-grid">
-                <Field className="span-4" label="Ingredient">
-                  <input
-                    value={component.ingredientName}
-                    onChange={(event) =>
-                      updateComponentDraft(component.id, { ingredientName: event.target.value })
-                    }
-                  />
-                </Field>
-                <Field className="span-2" label="Quantity">
-                  <input
-                    min="0"
-                    step="0.1"
-                    type="number"
-                    value={component.quantity}
-                    onChange={(event) =>
-                      updateComponentDraft(component.id, { quantity: event.target.value })
-                    }
-                  />
-                </Field>
-                <Field className="span-2" label="Unit">
-                  <select
-                    value={component.unit}
-                    onChange={(event) =>
-                      updateComponentDraft(component.id, { unit: event.target.value as Unit })
-                    }
-                  >
-                    {units.map((unit) => (
-                      <option key={unit} value={unit}>
-                        {unit}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-                <Field className="span-2" label="Type">
-                  <select
-                    value={component.dependencyType}
-                    onChange={(event) =>
-                      updateComponentDraft(component.id, {
-                        dependencyType: event.target.value as DependencyType,
-                      })
-                    }
-                  >
-                    {dependencyTypes.map((dependencyType) => (
-                      <option key={dependencyType} value={dependencyType}>
-                        {dependencyType}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-                <Field className="span-2" label="Required">
-                  <select
-                    value={component.required ? "yes" : "no"}
-                    onChange={(event) =>
-                      updateComponentDraft(component.id, { required: event.target.value === "yes" })
-                    }
-                  >
-                    <option value="yes">yes</option>
-                    <option value="no">no</option>
-                  </select>
-                </Field>
-                <Field className="span-4" label="Allergens">
-                  <input
-                    value={component.allergens}
-                    onChange={(event) =>
-                      updateComponentDraft(component.id, { allergens: event.target.value })
-                    }
-                  />
-                </Field>
-                <Field className="span-4" label="Alternatives">
-                  <input
-                    value={component.alternatives}
-                    onChange={(event) =>
-                      updateComponentDraft(component.id, { alternatives: event.target.value })
-                    }
-                  />
-                </Field>
-                <Field className="span-4" label="Notes">
-                  <input
-                    value={component.notes}
-                    onChange={(event) =>
-                      updateComponentDraft(component.id, { notes: event.target.value })
-                    }
-                  />
-                </Field>
-                <Field className="span-12" label="Transitive dependencies">
-                  <textarea
-                    value={component.transitiveDependencies}
-                    onChange={(event) =>
-                      updateComponentDraft(component.id, {
-                        transitiveDependencies: event.target.value,
-                      })
-                    }
-                  />
-                </Field>
-              </div>
-              <div className="action-row">
-                <Button
-                  type="button"
-                  variant="danger"
-                  onClick={() =>
-                    setComponentDrafts((current) =>
-                      current.filter((item) => item.id !== component.id),
-                    )
-                  }
-                >
-                  <TrashIcon /> Remove dependency
-                </Button>
-              </div>
-            </div>
-          ))}
-        </div>
-      </section>
-    </>
+    <RecipeEditorForm
+      initialComponents={existing?.components}
+      initialMetadata={initialMetadata}
+      isNew={isNew}
+      mode="cloud"
+      onCancel={() => navigate(isNew ? "/" : `/${editableOwnerHandle}/${slug}`)}
+      onSave={handleSave}
+    />
   );
 }
 
-function Field({
-  label,
-  className,
-  children,
-}: {
-  label: string;
-  className?: string;
-  children: ReactNode;
-}) {
-  const generatedId = useId();
-  const childId = isValidElement<{ id?: string }>(children)
-    ? (children.props.id ?? generatedId)
-    : generatedId;
-  const control = isValidElement<{ id?: string }>(children)
-    ? cloneElement(children, { id: childId })
-    : children;
-
-  return (
-    <div className={`field ${className ?? ""}`}>
-      <label htmlFor={childId}>{label}</label>
-      {control}
-    </div>
-  );
-}
-
-function createEmptyComponentDraft(): ComponentDraft {
+function toEditorMetadata(
+  repository: RecipeRepositoryEntity | CloudRepository,
+): RecipeEditorMetadata {
   return {
-    id: createId("component"),
-    ingredientName: "",
-    quantity: "1",
-    unit: "piece",
-    dependencyType: "required",
-    required: true,
-    allergens: "",
-    alternatives: "",
-    transitiveDependencies: "",
-    notes: "",
+    description: repository.description,
+    license: repository.license,
+    maintainer: repository.maintainer,
+    name: repository.name,
+    readme: repository.readme,
+    servings: repository.servings,
+    slug: repository.slug,
+    tags: repository.tags,
+    version: repository.version,
+    visibility: repository.visibility,
   };
 }
 
-function toComponentDraft(component: RecipeComponent): ComponentDraft {
+function toCloudRecipeComponent(component: RecipeEditorComponent): CloudRecipeComponent {
   return {
+    allergens: component.allergens,
+    alternatives: component.alternatives,
+    dependencyType: component.dependencyType,
     id: component.id,
     ingredientName: component.ingredientName,
-    quantity: String(component.quantity),
-    unit: component.unit,
-    dependencyType: component.dependencyType,
+    quantity: component.quantity,
     required: component.required,
-    allergens: component.allergens.join(", "),
-    alternatives: component.alternatives.join(", "),
-    transitiveDependencies: component.transitiveDependencies
-      .map((dependency) => `${dependency.name}: ${dependency.allergens.join(", ")}`)
-      .join("\n"),
-    notes: component.notes ?? "",
-  };
-}
-
-function toRecipeComponent(component: ComponentDraft, recipeId: string): RecipeComponent {
-  return {
-    id: component.id,
-    recipeId,
-    ingredientName: component.ingredientName.trim(),
-    quantity: Number(component.quantity) || 0,
+    transitiveDependencies: component.transitiveDependencies,
     unit: component.unit,
-    dependencyType: component.dependencyType,
-    required: component.required,
-    allergens: parseAllergens(component.allergens),
-    alternatives: splitList(component.alternatives),
-    transitiveDependencies: parseTransitiveDependencies(component.transitiveDependencies),
-    notes: emptyToUndefined(component.notes),
   };
-}
-
-function splitList(value: string): string[] {
-  return value
-    .split(",")
-    .map((item) => item.trim())
-    .filter(Boolean);
-}
-
-function parseAllergens(value: string): Allergen[] {
-  const knownAllergens = new Set<string>(allergens);
-  return splitList(value).flatMap((item) => (knownAllergens.has(item) ? [item as Allergen] : []));
-}
-
-function parseTransitiveDependencies(value: string): IngredientDependency[] {
-  return value
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => {
-      const [name, allergenText] = line.split(":");
-      return {
-        name: name.trim(),
-        dependencyType: "transitive",
-        allergens: parseAllergens(allergenText ?? ""),
-      };
-    });
-}
-
-function emptyToUndefined(value: string): string | undefined {
-  const trimmed = value.trim();
-  return trimmed ? trimmed : undefined;
 }

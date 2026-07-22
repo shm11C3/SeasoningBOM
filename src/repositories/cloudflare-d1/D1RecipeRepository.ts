@@ -1,6 +1,10 @@
-import type { RecipeRepositoryEntity } from "../../domain";
+import type { RecipeComponent, RecipeRepositoryEntity } from "../../domain";
 import type { D1Database, D1PreparedStatement } from "../../workers/api/types";
 import type { CloudContributionEvent, ContributionEventType } from "./D1ContributionEvent";
+import {
+  buildRecipeComponentInsertStatements,
+  buildRecipeComponentReplacementStatements,
+} from "./D1RecipeComponentRepository";
 import type { ContributionVisibility } from "./D1UserProfileRepository";
 
 export type CloudRecipeRepository = RecipeRepositoryEntity & {
@@ -9,6 +13,7 @@ export type CloudRecipeRepository = RecipeRepositoryEntity & {
 };
 
 export type CreateRecipeRepositoryInput = {
+  components?: RecipeComponent[];
   id: string;
   ownerUserId: string;
   ownerHandle: string;
@@ -25,6 +30,7 @@ export type CreateRecipeRepositoryInput = {
 };
 
 export type UpdateRecipeRepositoryInput = {
+  components?: RecipeComponent[];
   id: string;
   ownerUserId: string;
   ownerHandle: string;
@@ -141,8 +147,21 @@ export class D1RecipeRepository implements RecipeRepositoryMetadataRepository {
 
   async create(input: CreateRecipeRepositoryInput): Promise<CloudRecipeRepository> {
     const { servings, version, visibility } = this.resolveCreateDefaults(input);
+    const repositoryStatement = this.createRepositoryStatement(
+      input,
+      visibility,
+      version,
+      servings,
+    );
 
-    await this.createRepositoryStatement(input, visibility, version, servings).run();
+    if (input.components) {
+      await this.db.batch([
+        repositoryStatement,
+        ...buildRecipeComponentInsertStatements(this.db, input.id, input.components, input.now),
+      ]);
+    } else {
+      await repositoryStatement.run();
+    }
 
     return buildCreatedRepository(input, visibility, version, servings);
   }
@@ -156,6 +175,9 @@ export class D1RecipeRepository implements RecipeRepositoryMetadataRepository {
     await this.db.batch([
       this.createRepositoryStatement(input, visibility, version, servings),
       this.contributionEventStatement(input.ownerUserId, input.id, input.contribution),
+      ...(input.components
+        ? buildRecipeComponentInsertStatements(this.db, input.id, input.components, input.now)
+        : []),
     ]);
 
     return {
@@ -165,7 +187,20 @@ export class D1RecipeRepository implements RecipeRepositoryMetadataRepository {
   }
 
   async update(input: UpdateRecipeRepositoryInput): Promise<CloudRecipeRepository> {
-    await this.updateRepositoryStatement(input).run();
+    const repositoryStatement = this.updateRepositoryStatement(input);
+    if (input.components) {
+      await this.db.batch([
+        repositoryStatement,
+        ...buildRecipeComponentReplacementStatements(
+          this.db,
+          input.id,
+          input.components,
+          input.now,
+        ),
+      ]);
+    } else {
+      await repositoryStatement.run();
+    }
 
     return buildUpdatedRepository(input);
   }
@@ -177,6 +212,9 @@ export class D1RecipeRepository implements RecipeRepositoryMetadataRepository {
     await this.db.batch([
       this.updateRepositoryStatement(input),
       this.contributionEventStatement(input.ownerUserId, input.id, input.contribution),
+      ...(input.components
+        ? buildRecipeComponentReplacementStatements(this.db, input.id, input.components, input.now)
+        : []),
     ]);
 
     return {

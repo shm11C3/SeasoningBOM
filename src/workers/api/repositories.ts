@@ -139,6 +139,7 @@ type ReplaceRepositoryDependenciesBody = {
 };
 
 type CreateRepositoryBody = {
+  components?: unknown;
   description?: unknown;
   license?: unknown;
   name?: unknown;
@@ -160,6 +161,7 @@ const maxDependencyReplacementRows = 38;
 const repositoryVisibilitySet = new Set<string>(repositoryVisibilities);
 const unitSet = new Set<string>(units);
 const updateRepositoryFields = [
+  "components",
   "description",
   "license",
   "name",
@@ -987,10 +989,17 @@ export async function handlePostRepository(
   const now = (options.now?.() ?? new Date()).toISOString();
   const id = options.createRepositoryId?.() ?? crypto.randomUUID();
   const contributionEventId = options.createContributionEventId?.() ?? crypto.randomUUID();
+  const manifest = Object.hasOwn(body.value, "components")
+    ? normalizeReplaceRepositoryDependenciesBody({ components: body.value.components }, id, options)
+    : null;
+  if (manifest && !manifest.ok) {
+    return badRequest(manifest.message);
+  }
 
   try {
     const { repository } = await repositories.createWithContribution({
       ...input.value,
+      components: manifest?.value.components,
       contribution: {
         eventType: "recipe_created",
         id: contributionEventId,
@@ -1064,6 +1073,17 @@ export async function handlePatchRepository(
     return badRequest(input.message);
   }
 
+  const manifest = Object.hasOwn(body.value, "components")
+    ? normalizeReplaceRepositoryDependenciesBody(
+        { components: body.value.components },
+        currentResult.repository.id,
+        options,
+      )
+    : null;
+  if (manifest && !manifest.ok) {
+    return badRequest(manifest.message);
+  }
+
   if (input.value.slug !== currentResult.repository.slug) {
     let slugOwner: CloudRecipeRepository | null;
     try {
@@ -1082,14 +1102,25 @@ export async function handlePatchRepository(
 
   const now = (options.now?.() ?? new Date()).toISOString();
   const contributionEventId = options.createContributionEventId?.() ?? crypto.randomUUID();
-  const shouldRecordContribution = shouldRecordRecipeUpdateContribution(
-    currentResult.repository,
-    input.value,
-  );
+  let componentsChanged = false;
+  if (manifest?.ok) {
+    try {
+      const currentComponents = await getRecipeComponentRepository(env, options).listByRepositoryId(
+        currentResult.repository.id,
+      );
+      componentsChanged = !recipeComponentsEqual(currentComponents, manifest.value.components);
+    } catch {
+      return serverError("Failed to update repository.");
+    }
+  }
+  const shouldRecordContribution =
+    componentsChanged ||
+    shouldRecordRecipeUpdateContribution(currentResult.repository, input.value);
 
   try {
     const updateInput = {
       ...input.value,
+      ...(manifest?.ok && componentsChanged ? { components: manifest.value.components } : {}),
       id: currentResult.repository.id,
       ownerHandle: currentResult.repository.ownerHandle,
       ownerUserId: currentResult.repository.ownerUserId,
@@ -1790,6 +1821,42 @@ function shouldRecordRecipeUpdateContribution(
     (current.readme ?? undefined) !== (next.readme ?? undefined) ||
     (current.license ?? undefined) !== (next.license ?? undefined)
   );
+}
+
+function recipeComponentsEqual(current: RecipeComponent[], next: RecipeComponent[]): boolean {
+  return (
+    JSON.stringify(toComparableComponents(current)) === JSON.stringify(toComparableComponents(next))
+  );
+}
+
+function toComparableComponents(components: RecipeComponent[]) {
+  return components
+    .map((component) => ({
+      allergens: [...component.allergens].sort(),
+      alternatives: [...component.alternatives].sort(),
+      dependencyType: component.dependencyType,
+      ingredientName: component.ingredientName,
+      quantity: component.quantity,
+      required: component.required,
+      transitiveDependencies: component.transitiveDependencies
+        .map((dependency) => ({
+          allergens: [...dependency.allergens].sort(),
+          dependencyType: dependency.dependencyType,
+          name: dependency.name,
+          notes: dependency.notes,
+        }))
+        .sort((left, right) =>
+          `${left.name}:${left.dependencyType}`.localeCompare(
+            `${right.name}:${right.dependencyType}`,
+          ),
+        ),
+      unit: component.unit,
+    }))
+    .sort((left, right) =>
+      `${left.ingredientName}:${left.dependencyType}`.localeCompare(
+        `${right.ingredientName}:${right.dependencyType}`,
+      ),
+    );
 }
 
 function contributionVisibilityForRepository(

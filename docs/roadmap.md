@@ -148,21 +148,15 @@ Current implementation checkpoint:
 - `/` lists public repositories from the Workers API without local-only inventory, audit, Star, or Fork estimates.
 - `/:owner/:repo` loads repository metadata, direct and transitive dependencies, and public Recipe Alerts from the Workers API. Optional dependency or security failures do not hide successfully loaded repository metadata.
 - Cloud repository pages download the server-generated SeasoningBOM from `GET /api/repos/:owner/:repo/bom`; they do not regenerate it from browser or IndexedDB state.
-- Cloud dashboard, repository detail, and profile routes do not seed or subscribe to IndexedDB. Unmigrated edit, inventory, audit, EOL, and backup routes retain the local prototype behavior.
+- Cloud dashboard, repository detail, repository editor, and profile routes do not seed or subscribe to IndexedDB. Unmigrated inventory, audit, EOL, and backup routes retain the local prototype behavior.
 - Cloud mode enables Clerk's prebuilt sign-in and user controls when `VITE_CLERK_PUBLISHABLE_KEY` is configured. Local mode does not initialize Clerk, and a missing Clerk key does not block public Cloud reads.
 - Cloud API reads attach the current Clerk session token as a bearer token only when token retrieval succeeds. Signed-out reads and public reads whose token refresh fails continue anonymously without an Authorization header.
+- Signed-in users bootstrap their stable User Handle through `GET /api/me` and `POST /api/me/profile`. Cloud repository create/edit/delete requires a bearer token and saves metadata plus the full dependency manifest atomically.
 
-Deliverables:
+Remaining deliverables:
 
-- Clerk auth UI states
-- `/:owner/:repo` canonical routes
-- repository create/edit flow
-- Code / Dependencies / Security tabs backed by API
-- public Recipe Alerts
 - signed-in `Your inventory audit`
 - Star and Fork interactions
-- profile contribution graph
-- SeasoningBOM download from repository content
 
 Exit criteria:
 

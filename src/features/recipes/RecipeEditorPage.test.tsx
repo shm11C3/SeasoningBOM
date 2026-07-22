@@ -1,20 +1,37 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { CloudApiProvider } from "../../app/providers/CloudApiProvider";
+import { CloudApiError } from "../../repositories/cloud-api/SeasoningBomApiClient";
+import { createCloudApiClientMock } from "../../test/factories/cloudApiFactories";
 import { makeComponent, makeRecipe } from "../../test/factories/domainFactories";
 import { RecipeEditorPage } from "./RecipeEditorPage";
 
 const liveDataMock = vi.hoisted(() => ({
   current: null as unknown,
 }));
+const cloudProfileMock = vi.hoisted(() => ({
+  current: {
+    profile: { username: "test-cook" },
+    status: "ready",
+  } as unknown,
+}));
 
 vi.mock("../useLiveData", () => ({
   useLiveData: () => liveDataMock.current,
 }));
 
+vi.mock("../../app/providers/CloudProfileProvider", () => ({
+  useCloudProfile: () => cloudProfileMock.current,
+}));
+
 describe("RecipeEditorPage", () => {
   beforeEach(() => {
     window.history.pushState({}, "", "/new");
+    cloudProfileMock.current = {
+      profile: { username: "test-cook" },
+      status: "ready",
+    };
   });
 
   it("validates and saves a new recipe with parsed dependencies", async () => {
@@ -130,5 +147,142 @@ describe("RecipeEditorPage", () => {
     render(<RecipeEditorPage ownerHandle="me" slug="missing" />);
 
     await waitFor(() => expect(screen.getByText("Repository not found")).toBeInTheDocument());
+  });
+
+  it("creates a cloud repository and its dependency manifest", async () => {
+    const user = userEvent.setup();
+    const createRepository = vi.fn().mockResolvedValue({
+      ownerHandle: "test-cook",
+      slug: "cloud-curry",
+    });
+    const client = createCloudApiClientMock({ createRepository });
+
+    render(
+      <CloudApiProvider client={client}>
+        <RecipeEditorPage ownerHandle="me" slug="new" />
+      </CloudApiProvider>,
+    );
+
+    await user.type(screen.getByLabelText("Name"), "Cloud Curry");
+    await user.type(screen.getByLabelText("Ingredient"), "rice");
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    expect(createRepository).toHaveBeenCalledWith(
+      expect.objectContaining({
+        components: [expect.objectContaining({ ingredientName: "rice" })],
+        name: "Cloud Curry",
+        slug: "cloud-curry",
+      }),
+    );
+    expect(window.location.pathname).toBe("/test-cook/cloud-curry");
+    expect(screen.queryByLabelText("Maintainer")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Tags")).not.toBeInTheDocument();
+  });
+
+  it("loads and atomically updates an owned cloud repository", async () => {
+    const user = userEvent.setup();
+    const recipe = makeRecipe({ ownerHandle: "test-cook" });
+    const component = makeComponent({ recipeId: recipe.id });
+    const updateRepository = vi.fn().mockResolvedValue({
+      ...recipe,
+      ownerHandle: "test-cook",
+      version: "0.2.0",
+    });
+    const client = createCloudApiClientMock({
+      getRepository: vi.fn().mockResolvedValue(recipe),
+      getRepositoryDependencies: vi.fn().mockResolvedValue({
+        components: [component],
+        repository: recipe,
+      }),
+      updateRepository,
+    });
+
+    render(
+      <CloudApiProvider client={client}>
+        <RecipeEditorPage ownerHandle="test-cook" slug={recipe.slug} />
+      </CloudApiProvider>,
+    );
+
+    await user.clear(await screen.findByLabelText("Version"));
+    await user.type(screen.getByLabelText("Version"), "0.2.0");
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    expect(updateRepository).toHaveBeenCalledWith(
+      "test-cook",
+      recipe.slug,
+      expect.objectContaining({
+        components: [expect.objectContaining({ id: component.id })],
+        version: "0.2.0",
+      }),
+    );
+  });
+
+  it("requires a signed-in cloud profile before editing", () => {
+    cloudProfileMock.current = { profile: null, status: "signed-out" };
+
+    render(
+      <CloudApiProvider client={createCloudApiClientMock()}>
+        <RecipeEditorPage ownerHandle="me" slug="new" />
+      </CloudApiProvider>,
+    );
+
+    expect(screen.getByText("Sign in required")).toBeInTheDocument();
+  });
+
+  it("requires profile bootstrap and rejects editing another owner's repository", () => {
+    const client = createCloudApiClientMock();
+    cloudProfileMock.current = { profile: null, status: "needs-profile" };
+    const { rerender } = render(
+      <CloudApiProvider client={client}>
+        <RecipeEditorPage ownerHandle="me" slug="new" />
+      </CloudApiProvider>,
+    );
+    expect(screen.getByText("User Handle required")).toBeInTheDocument();
+
+    cloudProfileMock.current = {
+      profile: { username: "test-cook" },
+      status: "ready",
+    };
+    rerender(
+      <CloudApiProvider client={client}>
+        <RecipeEditorPage ownerHandle="another-cook" slug="private-recipe" />
+      </CloudApiProvider>,
+    );
+    expect(screen.getByText("Only the owner can edit this repository.")).toBeInTheDocument();
+    expect(client.getRepository).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [new CloudApiError(404, "Missing", "not_found"), "Repository not found"],
+    [new Error("offline"), "Repository unavailable"],
+  ])("shows bounded cloud load failures", async (failure, title) => {
+    const client = createCloudApiClientMock({
+      getRepository: vi.fn().mockRejectedValue(failure),
+      getRepositoryDependencies: vi.fn().mockResolvedValue({ components: [] }),
+    });
+
+    render(
+      <CloudApiProvider client={client}>
+        <RecipeEditorPage ownerHandle="test-cook" slug="missing" />
+      </CloudApiProvider>,
+    );
+
+    expect(await screen.findByText(title)).toBeInTheDocument();
+  });
+
+  it("keeps cloud save errors in the editor", async () => {
+    const user = userEvent.setup();
+    const client = createCloudApiClientMock({
+      createRepository: vi.fn().mockRejectedValue(new Error("Save unavailable.")),
+    });
+    render(
+      <CloudApiProvider client={client}>
+        <RecipeEditorPage ownerHandle="me" slug="new" />
+      </CloudApiProvider>,
+    );
+
+    await user.type(screen.getByLabelText("Name"), "Cloud Curry");
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+    expect(await screen.findByText("Save unavailable.")).toBeInTheDocument();
   });
 });

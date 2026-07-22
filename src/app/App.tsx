@@ -6,6 +6,7 @@ import { EolDashboardPage } from "../features/audit/EolDashboardPage";
 import { SecurityPage } from "../features/audit/SecurityPage";
 import { BackupPage } from "../features/backup/BackupPage";
 import { InventoryPage } from "../features/inventory/InventoryPage";
+import { ProfileBootstrapPanel } from "../features/profile/ProfileBootstrapPanel";
 import { ProfilePage } from "../features/profile/ProfilePage";
 import { DashboardPage } from "../features/recipes/DashboardPage";
 import { RecipeDetailPage } from "../features/recipes/RecipeDetailPage";
@@ -32,7 +33,10 @@ export function App() {
   const [seedError, setSeedError] = useState<string | null>(null);
   const routeUsesCloudData =
     cloudApi !== null &&
-    (route.name === "dashboard" || route.name === "profile" || route.name === "repository");
+    (route.name === "dashboard" ||
+      route.name === "profile" ||
+      route.name === "repository" ||
+      route.name === "repository-edit");
 
   useEffect(() => {
     let active = true;
@@ -84,6 +88,7 @@ export function App() {
             <AuthControls />
           </header>
           <main className="app-main">
+            <ProfileBootstrapPanel />
             {seedError ? <div className="flash flash-danger">{seedError}</div> : null}
             {route.name === "dashboard" ? <DashboardPage /> : null}
             {route.name === "repository" ? (

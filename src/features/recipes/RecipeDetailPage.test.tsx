@@ -10,6 +10,7 @@ import {
   type CloudRepositorySecurity,
   type SeasoningBomApiClient,
 } from "../../repositories/cloud-api/SeasoningBomApiClient";
+import { createCloudApiClientMock } from "../../test/factories/cloudApiFactories";
 import {
   makeComponent,
   makeInventoryItem,
@@ -22,6 +23,9 @@ const liveDataMock = vi.hoisted(() => ({
   current: null as unknown,
 }));
 const downloadJsonMock = vi.hoisted(() => vi.fn());
+const cloudProfileMock = vi.hoisted(() => ({
+  current: { profile: null, status: "disabled" } as unknown,
+}));
 
 vi.mock("../download", () => ({
   downloadJson: downloadJsonMock,
@@ -29,6 +33,10 @@ vi.mock("../download", () => ({
 
 vi.mock("../useLiveData", () => ({
   useLiveData: () => liveDataMock.current,
+}));
+
+vi.mock("../../app/providers/CloudProfileProvider", () => ({
+  useCloudProfile: () => cloudProfileMock.current,
 }));
 
 describe("RecipeDetailPage", () => {
@@ -213,6 +221,7 @@ describe("RecipeDetailPage cloud repository", () => {
   beforeEach(() => {
     window.history.pushState({}, "", "/test-cook/cloud-curry");
     downloadJsonMock.mockReset();
+    cloudProfileMock.current = { profile: null, status: "disabled" };
   });
 
   it("renders API-backed code, dependencies, public alerts, and BOM download", async () => {
@@ -241,6 +250,24 @@ describe("RecipeDetailPage cloud repository", () => {
       expect(downloadJsonMock).toHaveBeenCalledWith("cloud-curry-seasoningbom.json", bom),
     );
     expect(screen.getByText("SeasoningBOM JSON downloaded.")).toBeInTheDocument();
+  });
+
+  it("shows edit and delete actions only to the cloud repository owner", async () => {
+    const user = userEvent.setup();
+    const deleteRepository = vi.fn().mockResolvedValue(undefined);
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    cloudProfileMock.current = {
+      profile: { username: repository.ownerHandle },
+      status: "ready",
+    };
+    renderCloudDetail(createCloudClient({ deleteRepository }));
+
+    expect(await screen.findByRole("button", { name: "Edit" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Delete" }));
+
+    expect(confirm).toHaveBeenCalledWith("Delete test-cook/cloud-curry?");
+    expect(deleteRepository).toHaveBeenCalledWith("test-cook", "cloud-curry");
+    await waitFor(() => expect(window.location.pathname).toBe("/"));
   });
 
   it("keeps repository metadata visible when optional resources fail", async () => {
@@ -336,16 +363,12 @@ describe("RecipeDetailPage cloud repository", () => {
   function createCloudClient(
     overrides: Partial<SeasoningBomApiClient> = {},
   ): SeasoningBomApiClient {
-    return {
-      getPublicProfile: vi.fn(),
+    return createCloudApiClientMock({
       getRepository: vi.fn().mockResolvedValue(repository),
       getRepositoryBom: vi.fn().mockResolvedValue(bom),
       getRepositoryDependencies: vi.fn().mockResolvedValue({ components, repository }),
       getRepositorySecurity: vi.fn().mockResolvedValue(security),
-      getUserContributionDay: vi.fn(),
-      getUserContributions: vi.fn(),
-      listPublicRepositories: vi.fn(),
       ...overrides,
-    };
+    });
   }
 });

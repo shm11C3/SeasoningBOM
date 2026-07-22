@@ -9,6 +9,7 @@ import {
   type CloudUserProfile,
   type SeasoningBomApiClient,
 } from "../../repositories/cloud-api/SeasoningBomApiClient";
+import { createCloudApiClientMock } from "../../test/factories/cloudApiFactories";
 import { makeRecipe } from "../../test/factories/domainFactories";
 import { ProfilePage } from "./ProfilePage";
 
@@ -298,12 +299,8 @@ function renderProfile(client: SeasoningBomApiClient | null, username: string) {
 }
 
 function createClient(overrides: Partial<SeasoningBomApiClient> = {}): SeasoningBomApiClient {
-  return {
+  return createCloudApiClientMock({
     getPublicProfile: vi.fn().mockResolvedValue(profile),
-    getRepository: vi.fn(),
-    getRepositoryBom: vi.fn(),
-    getRepositoryDependencies: vi.fn(),
-    getRepositorySecurity: vi.fn(),
     getUserContributionDay: vi.fn().mockResolvedValue({
       contributionCount: 0,
       date: "2026-07-23",
@@ -315,5 +312,5 @@ function createClient(overrides: Partial<SeasoningBomApiClient> = {}): Seasoning
     getUserContributions: vi.fn().mockResolvedValue(contributions),
     listPublicRepositories: vi.fn().mockResolvedValue([]),
     ...overrides,
-  };
+  });
 }

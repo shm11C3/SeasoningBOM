@@ -77,7 +77,29 @@ export type CloudRepositorySecurity = {
   summary: AuditSummary;
 };
 
+export type CloudProfileBootstrapInput = {
+  avatarUrl?: string;
+  displayName?: string;
+  username: string;
+};
+
+export type CloudRepositoryWriteInput = {
+  components: CloudRecipeComponent[];
+  description?: string;
+  license?: string;
+  name: string;
+  readme?: string;
+  servings: number;
+  slug: string;
+  version: string;
+  visibility: RecipeRepositoryEntity["visibility"];
+};
+
 export interface SeasoningBomApiClient {
+  bootstrapProfile(input: CloudProfileBootstrapInput): Promise<CloudUserProfile>;
+  createRepository(input: CloudRepositoryWriteInput): Promise<CloudRepository>;
+  deleteRepository(ownerHandle: string, slug: string): Promise<void>;
+  getCurrentProfile(signal?: AbortSignal): Promise<CloudUserProfile>;
   getPublicProfile(username: string, signal?: AbortSignal): Promise<CloudUserProfile>;
   getUserContributions(username: string, signal?: AbortSignal): Promise<CloudContributionList>;
   getUserContributionDay(
@@ -98,6 +120,11 @@ export interface SeasoningBomApiClient {
     signal?: AbortSignal,
   ): Promise<CloudRepositorySecurity>;
   listPublicRepositories(signal?: AbortSignal): Promise<CloudRepository[]>;
+  updateRepository(
+    ownerHandle: string,
+    slug: string,
+    input: CloudRepositoryWriteInput,
+  ): Promise<CloudRepository>;
 }
 
 export class CloudApiError extends Error {
@@ -144,7 +171,48 @@ export function createSeasoningBomApiClient(
     return body as T;
   };
 
+  const mutate = async <T>(
+    method: "DELETE" | "PATCH" | "POST",
+    path: string,
+    body?: unknown,
+  ): Promise<T> => {
+    const token = await getRequiredSessionToken(getSessionToken);
+    const response = await fetcher(`${normalizedBaseUrl}${path}`, {
+      body: typeof body === "undefined" ? undefined : JSON.stringify(body),
+      credentials: "include",
+      headers: {
+        Accept: "application/json",
+        Authorization: `Bearer ${token}`,
+        ...(typeof body === "undefined" ? {} : { "Content-Type": "application/json" }),
+      },
+      method,
+    });
+    const responseBody = response.status === 204 ? undefined : await readJson(response);
+
+    if (!response.ok) {
+      const error = readApiError(responseBody);
+      throw new CloudApiError(response.status, error.message, error.code);
+    }
+
+    return responseBody as T;
+  };
+
   return {
+    async bootstrapProfile(input) {
+      const response = await mutate<{ profile: CloudUserProfile }>("POST", "/me/profile", input);
+      return response.profile;
+    },
+    async createRepository(input) {
+      const response = await mutate<{ repository: CloudRepository }>("POST", "/repos", input);
+      return response.repository;
+    },
+    deleteRepository(ownerHandle, slug) {
+      return mutate<void>("DELETE", repositoryPath(ownerHandle, slug));
+    },
+    async getCurrentProfile(signal) {
+      const response = await get<{ profile: CloudUserProfile }>("/me", signal);
+      return response.profile;
+    },
     async getPublicProfile(username, signal) {
       const response = await get<{ profile: CloudUserProfile }>(
         `/users/${encodeURIComponent(username)}/profile`,
@@ -187,6 +255,14 @@ export function createSeasoningBomApiClient(
       const response = await get<{ repositories: CloudRepository[] }>("/repos", signal);
       return response.repositories;
     },
+    async updateRepository(ownerHandle, slug, input) {
+      const response = await mutate<{ repository: CloudRepository }>(
+        "PATCH",
+        repositoryPath(ownerHandle, slug),
+        input,
+      );
+      return response.repository;
+    },
   };
 }
 
@@ -200,6 +276,21 @@ async function getOptionalSessionToken(getSessionToken: GetSessionToken): Promis
   } catch {
     return null;
   }
+}
+
+async function getRequiredSessionToken(getSessionToken: GetSessionToken): Promise<string> {
+  let token: string | null;
+  try {
+    token = await getSessionToken();
+  } catch {
+    throw new CloudApiError(401, "Sign in again before saving changes.", "not_authenticated");
+  }
+
+  const normalizedToken = token?.trim();
+  if (!normalizedToken) {
+    throw new CloudApiError(401, "Sign in before saving changes.", "not_authenticated");
+  }
+  return normalizedToken;
 }
 
 function repositoryPath(ownerHandle: string, slug: string): string {

@@ -255,7 +255,7 @@ Examples:
 - レシピ削除時に components も削除する。
 - backup import 時に複数 store を一括更新する。
 
-local prototype の recipe editor は `RecipeRepository.save` と `RecipeComponentRepository.saveMany` を順に呼びます。Cloud D1 MVP では repository metadata / components / dependency rows の保存を API layer で atomic に扱います。
+local prototype の recipe editor は `RecipeRepository.save` と `RecipeComponentRepository.saveMany` を順に呼びます。Cloud D1 MVP の editor は `POST /api/repos` / `PATCH /api/repos/:owner/:repo` に full `components` manifest を含め、repository metadata、Contribution、components、dependency rows を同じ D1 batch で atomic に保存します。詳細は ADR 0012 を参照してください。
 
 ## Import Conflict Policy
 

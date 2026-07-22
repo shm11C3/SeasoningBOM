@@ -118,6 +118,88 @@ describe("SeasoningBomApiClient", () => {
     );
   });
 
+  it("loads the current profile and sends authenticated repository writes", async () => {
+    const repository = { id: "repo_1", ownerHandle: "test-user", slug: "curry" };
+    const writeInput = {
+      components: [],
+      name: "Curry",
+      servings: 2,
+      slug: "curry",
+      version: "0.1.0",
+      visibility: "public" as const,
+    };
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse({ profile: { id: "profile_1", username: "test-user" } }))
+      .mockResolvedValueOnce(
+        jsonResponse({ profile: { id: "profile_1", username: "test-user" } }, { status: 201 }),
+      )
+      .mockResolvedValueOnce(jsonResponse({ repository }, { status: 201 }))
+      .mockResolvedValueOnce(jsonResponse({ repository: { ...repository, version: "0.2.0" } }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+    const getSessionToken = vi.fn().mockResolvedValue("  session-token  ");
+    const client = createSeasoningBomApiClient("/api", fetcher, getSessionToken);
+
+    await expect(client?.getCurrentProfile()).resolves.toMatchObject({ username: "test-user" });
+    await expect(client?.bootstrapProfile({ username: "test-user" })).resolves.toMatchObject({
+      username: "test-user",
+    });
+    await expect(client?.createRepository(writeInput)).resolves.toEqual(repository);
+    await expect(
+      client?.updateRepository("test-user", "curry", { ...writeInput, version: "0.2.0" }),
+    ).resolves.toMatchObject({ version: "0.2.0" });
+    await expect(client?.deleteRepository("test-user", "curry")).resolves.toBeUndefined();
+
+    expect(fetcher).toHaveBeenNthCalledWith(
+      2,
+      "/api/me/profile",
+      expect.objectContaining({
+        body: JSON.stringify({ username: "test-user" }),
+        headers: expect.objectContaining({
+          Authorization: "Bearer session-token",
+          "Content-Type": "application/json",
+        }),
+        method: "POST",
+      }),
+    );
+    expect(fetcher).toHaveBeenNthCalledWith(
+      3,
+      "/api/repos",
+      expect.objectContaining({ body: JSON.stringify(writeInput), method: "POST" }),
+    );
+    expect(fetcher).toHaveBeenNthCalledWith(
+      4,
+      "/api/repos/test-user/curry",
+      expect.objectContaining({ method: "PATCH" }),
+    );
+    expect(fetcher).toHaveBeenNthCalledWith(
+      5,
+      "/api/repos/test-user/curry",
+      expect.objectContaining({ body: undefined, method: "DELETE" }),
+    );
+  });
+
+  it.each([
+    { getToken: vi.fn().mockResolvedValue(null), message: "Sign in before saving changes." },
+    {
+      getToken: vi.fn().mockRejectedValue(new Error("expired")),
+      message: "Sign in again before saving changes.",
+    },
+  ])("does not send protected writes without a usable session token", async ({
+    getToken,
+    message,
+  }) => {
+    const fetcher = vi.fn<typeof fetch>();
+    const client = createSeasoningBomApiClient("/api", fetcher, getToken);
+
+    await expect(client?.bootstrapProfile({ username: "test-user" })).rejects.toMatchObject({
+      code: "not_authenticated",
+      message,
+      status: 401,
+    });
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
   it("keeps public reads available when Clerk cannot refresh a token", async () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ repositories: [] }));
     const client = createSeasoningBomApiClient(

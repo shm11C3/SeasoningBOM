@@ -5,6 +5,7 @@ import type {
   CloudRepository,
   SeasoningBomApiClient,
 } from "../../repositories/cloud-api/SeasoningBomApiClient";
+import { createCloudApiClientMock } from "../../test/factories/cloudApiFactories";
 import {
   makeComponent,
   makeInventoryItem,
@@ -16,9 +17,16 @@ import { DashboardPage } from "./DashboardPage";
 const liveDataMock = vi.hoisted(() => ({
   current: null as unknown,
 }));
+const cloudProfileMock = vi.hoisted(() => ({
+  current: { profile: null, status: "disabled" } as unknown,
+}));
 
 vi.mock("../useLiveData", () => ({
   useLiveData: () => liveDataMock.current,
+}));
+
+vi.mock("../../app/providers/CloudProfileProvider", () => ({
+  useCloudProfile: () => cloudProfileMock.current,
 }));
 
 describe("DashboardPage repository cards", () => {
@@ -101,6 +109,10 @@ describe("DashboardPage cloud repositories", () => {
     visibility: "public",
   };
 
+  beforeEach(() => {
+    cloudProfileMock.current = { profile: null, status: "disabled" };
+  });
+
   it("loads public repositories without local-only counts or actions", async () => {
     const client = createCloudClient({
       listPublicRepositories: vi.fn().mockResolvedValue([
@@ -148,6 +160,20 @@ describe("DashboardPage cloud repositories", () => {
     expect(await screen.findByText("Repositories unavailable")).toBeInTheDocument();
   });
 
+  it("offers repository creation to a bootstrapped cloud user", async () => {
+    const user = userEvent.setup();
+    cloudProfileMock.current = {
+      profile: { username: "test-cook" },
+      status: "ready",
+    };
+    renderCloudDashboard(
+      createCloudClient({ listPublicRepositories: vi.fn().mockResolvedValue([]) }),
+    );
+
+    await user.click(await screen.findByRole("button", { name: "New recipe" }));
+    expect(window.location.pathname).toBe("/new");
+  });
+
   it("aborts repository loading when the page unmounts", async () => {
     let signal: AbortSignal | undefined;
     let resolveRepositories: ((repositories: CloudRepository[]) => void) | undefined;
@@ -180,15 +206,8 @@ function renderCloudDashboard(client: SeasoningBomApiClient) {
 }
 
 function createCloudClient(overrides: Partial<SeasoningBomApiClient> = {}): SeasoningBomApiClient {
-  return {
-    getPublicProfile: vi.fn(),
-    getRepository: vi.fn(),
-    getRepositoryBom: vi.fn(),
-    getRepositoryDependencies: vi.fn(),
-    getRepositorySecurity: vi.fn(),
-    getUserContributionDay: vi.fn(),
-    getUserContributions: vi.fn(),
+  return createCloudApiClientMock({
     listPublicRepositories: vi.fn().mockResolvedValue([]),
     ...overrides,
-  };
+  });
 }
