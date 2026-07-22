@@ -27,12 +27,13 @@ export function AuthProvider({
     return <AppAuthContext.Provider value={disabledAuth}>{children}</AppAuthContext.Provider>;
   }
 
-  if (!clerkPublishableKey?.trim()) {
+  const normalizedClerkPublishableKey = clerkPublishableKey?.trim();
+  if (!normalizedClerkPublishableKey) {
     return <AppAuthContext.Provider value={misconfiguredAuth}>{children}</AppAuthContext.Provider>;
   }
 
   return (
-    <ClerkProvider publishableKey={clerkPublishableKey}>
+    <ClerkProvider publishableKey={normalizedClerkPublishableKey}>
       <ClerkAuthBridge>{children}</ClerkAuthBridge>
     </ClerkProvider>
   );

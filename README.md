@@ -65,7 +65,7 @@ VITE_SEASONINGBOM_API_BASE_URL=/api
 VITE_CLERK_PUBLISHABLE_KEY=pk_test_your_clerk_publishable_key
 ```
 
-Enable Google and GitHub social login in the Clerk application. Do not enable a SeasoningBOM-owned email/password flow. Without `VITE_SEASONINGBOM_API_BASE_URL`, the app keeps using the local IndexedDB prototype. With a Cloud API URL but no Clerk publishable key, public repository browsing remains available while sign-in is disabled.
+Replace `pk_test_your_clerk_publishable_key` with the actual publishable key from the Clerk Dashboard; the placeholder itself is not a valid configuration. Enable Google and GitHub social login in the Clerk application. Do not enable a SeasoningBOM-owned email/password flow. Without `VITE_SEASONINGBOM_API_BASE_URL`, the app keeps using the local IndexedDB prototype. With a Cloud API URL and the Clerk key left unset, public repository browsing remains available while sign-in is disabled.
 
 ## Tech Stack
 

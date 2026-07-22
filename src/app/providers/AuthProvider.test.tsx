@@ -9,12 +9,20 @@ const clerkMock = vi.hoisted(() => ({
   getToken: vi.fn<() => Promise<string | null>>(),
   isLoaded: true,
   isSignedIn: false,
+  publishableKey: undefined as string | undefined,
 }));
 
 vi.mock("@clerk/react", () => ({
-  ClerkProvider: ({ children }: { children: ReactNode }) => (
-    <div data-testid="clerk-provider">{children}</div>
-  ),
+  ClerkProvider: ({
+    children,
+    publishableKey,
+  }: {
+    children: ReactNode;
+    publishableKey: string;
+  }) => {
+    clerkMock.publishableKey = publishableKey;
+    return <div data-testid="clerk-provider">{children}</div>;
+  },
   Show: ({ children, when }: { children: ReactNode; when: "signed-in" | "signed-out" }) => {
     const visible = when === "signed-in" ? clerkMock.isSignedIn : !clerkMock.isSignedIn;
     return visible ? children : null;
@@ -30,6 +38,7 @@ describe("AuthProvider", () => {
     clerkMock.getToken.mockResolvedValue("session-token");
     clerkMock.isLoaded = true;
     clerkMock.isSignedIn = false;
+    clerkMock.publishableKey = undefined;
   });
 
   it("keeps auth disabled for the local prototype", () => {
@@ -50,9 +59,13 @@ describe("AuthProvider", () => {
 
   it("renders the Clerk loading and signed-out states", () => {
     clerkMock.isLoaded = false;
-    const { rerender } = renderAuth({ cloudApiBaseUrl: "/api", clerkPublishableKey: "pk_test" });
+    const { rerender } = renderAuth({
+      cloudApiBaseUrl: "/api",
+      clerkPublishableKey: "  pk_test  ",
+    });
     expect(screen.getByText("loading")).toBeInTheDocument();
     expect(screen.getByText("Loading account...")).toBeInTheDocument();
+    expect(clerkMock.publishableKey).toBe("pk_test");
 
     clerkMock.isLoaded = true;
     rerender(
