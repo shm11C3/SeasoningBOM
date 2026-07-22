@@ -37,7 +37,7 @@ It is a joke app, but food safety is not a joke: expired use-by ingredients are 
 
 Current phase: **local MVP implemented, Cloud D1 sharing MVP in progress**.
 
-The current React + Vite app includes local IndexedDB persistence, pure domain logic, GitHub-like recipe repository screens, inventory management, security/EOL dashboards, SeasoningBOM JSON download, and backup / restore.
+The current React + Vite app includes local IndexedDB persistence, pure domain logic, GitHub-like recipe repository screens, inventory management, security/EOL dashboards, SeasoningBOM JSON download, and backup / restore. Cloud mode also supports Clerk-backed profile bootstrap, D1 recipe writes, private D1 inventory CRUD, and signed-in Inventory Audit results without exposing them in public Recipe Alerts.
 
 The canonical product direction is now the Cloudflare Pages / Workers / D1 recipe sharing service described in `docs/seasoningbom_requirements_cloud_d1.md`. Existing IndexedDB code is a local prototype and migration base.
 

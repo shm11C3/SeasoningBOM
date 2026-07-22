@@ -244,12 +244,86 @@ describe("RecipeDetailPage cloud repository", () => {
     expect(screen.getByText("Public Recipe Alerts: 1.")).toBeInTheDocument();
     expect(screen.getByText("rice declares wheat")).toBeInTheDocument();
     expect(screen.queryByText("Your inventory audit")).not.toBeInTheDocument();
+    expect(client.runRepositoryAudit).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole("button", { name: "Download SBOM" }));
     await waitFor(() =>
       expect(downloadJsonMock).toHaveBeenCalledWith("cloud-curry-seasoningbom.json", bom),
     );
     expect(screen.getByText("SeasoningBOM JSON downloaded.")).toBeInTheDocument();
+  });
+
+  it("shows the signed-in viewer only their private inventory audit", async () => {
+    const user = userEvent.setup();
+    const runRepositoryAudit = vi.fn().mockResolvedValue({
+      inventoryAudit: {
+        generatedAt: "2026-07-23T00:00:00.000Z",
+        issues: [
+          {
+            category: "unsupported",
+            componentName: "rice",
+            id: "inventory_alert_rice",
+            inventoryItemId: "inventory_rice",
+            message: "rice is unsupported and excluded from recommendations",
+            recommendation: "Replace it with a supported ingredient.",
+            severity: "critical",
+          },
+        ],
+        recipeId: repository.id,
+        summary: { critical: 1, high: 0, low: 0, medium: 0, totalIssues: 1 },
+      },
+      repository,
+    });
+    cloudProfileMock.current = {
+      profile: { username: "signed-in-viewer" },
+      status: "ready",
+    };
+    renderCloudDetail(createCloudClient({ runRepositoryAudit }));
+
+    expect(await screen.findByRole("heading", { name: "Cloud Curry" })).toBeInTheDocument();
+    expect(runRepositoryAudit).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("tab", { name: "Security" }));
+
+    expect(
+      await screen.findByRole("heading", { name: "Your inventory audit" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("rice is unsupported and excluded from recommendations"),
+    ).toBeInTheDocument();
+    expect(runRepositoryAudit).toHaveBeenCalledWith(
+      "test-cook",
+      "cloud-curry",
+      expect.any(AbortSignal),
+    );
+  });
+
+  it("keeps the private audit visible when public alerts are unavailable", async () => {
+    const user = userEvent.setup();
+    const runRepositoryAudit = vi.fn().mockResolvedValue({
+      inventoryAudit: {
+        generatedAt: "2026-07-23T00:00:00.000Z",
+        issues: [],
+        recipeId: repository.id,
+        summary: { critical: 0, high: 0, low: 0, medium: 0, totalIssues: 0 },
+      },
+      repository,
+    });
+    cloudProfileMock.current = {
+      profile: { username: "signed-in-viewer" },
+      status: "ready",
+    };
+    renderCloudDetail(
+      createCloudClient({
+        getRepositorySecurity: vi.fn().mockRejectedValue(new Error("offline")),
+        runRepositoryAudit,
+      }),
+    );
+
+    expect(await screen.findByRole("heading", { name: "Cloud Curry" })).toBeInTheDocument();
+    await user.click(screen.getByRole("tab", { name: "Security" }));
+
+    expect(screen.getByText("Security alerts unavailable")).toBeInTheDocument();
+    expect(await screen.findByText("No private inventory audit issues")).toBeInTheDocument();
   });
 
   it("shows edit and delete actions only to the cloud repository owner", async () => {

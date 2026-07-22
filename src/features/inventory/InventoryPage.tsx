@@ -1,14 +1,22 @@
 import { Button } from "@primer/react";
 import type { ReactNode } from "react";
-import { cloneElement, isValidElement, useId, useMemo, useState } from "react";
+import { cloneElement, isValidElement, useEffect, useId, useMemo, useState } from "react";
+import { useCloudApi } from "../../app/providers/CloudApiProvider";
+import { useCloudProfile } from "../../app/providers/CloudProfileProvider";
 import {
   calculateLifecycleStatus,
+  defaultSettings,
   type IngredientCategory,
   type InventoryItem,
   ingredientCategories,
   type Unit,
   units,
 } from "../../domain";
+import type {
+  CloudInventoryWriteInput,
+  SeasoningBomApiClient,
+} from "../../repositories/cloud-api/SeasoningBomApiClient";
+import { EmptyState } from "../../ui/components/EmptyState";
 import { LifecycleLabel } from "../../ui/components/Labels";
 import { PlusIcon, TrashIcon } from "../../ui/components/TemporaryIcons";
 import { createId, formatQuantity } from "../format";
@@ -37,10 +45,169 @@ const emptyDraft: InventoryDraft = {
 };
 
 export function InventoryPage() {
+  const api = useCloudApi();
+  return api ? <CloudInventoryPage api={api} /> : <LocalInventoryPage />;
+}
+
+function LocalInventoryPage() {
   const { repositories, inventoryItems, settings } = useLiveData();
+  return (
+    <InventoryManager
+      description="Inventory packages stored locally in IndexedDB."
+      inventoryItems={inventoryItems}
+      onDelete={async (item) => {
+        await repositories.inventory.delete(item.id);
+        return true;
+      }}
+      onSave={async ({ createdAt, id, ...input }) => {
+        const timestamp = new Date().toISOString();
+        await repositories.inventory.save({
+          ...input,
+          createdAt: createdAt ?? timestamp,
+          id: id ?? createId("inventory"),
+          updatedAt: timestamp,
+        });
+      }}
+      settings={settings}
+    />
+  );
+}
+
+function CloudInventoryPage({ api }: { api: SeasoningBomApiClient }) {
+  const cloudProfile = useCloudProfile();
+  const [state, setState] = useState<
+    | { status: "loading" }
+    | { status: "error" }
+    | { inventoryItems: InventoryItem[]; status: "ready" }
+  >({ status: "loading" });
+
+  useEffect(() => {
+    if (cloudProfile.status !== "ready") {
+      setState({ status: "loading" });
+      return;
+    }
+
+    const controller = new AbortController();
+    setState({ status: "loading" });
+    api.listInventory(controller.signal).then(
+      (inventoryItems) => {
+        if (!controller.signal.aborted) {
+          setState({ inventoryItems, status: "ready" });
+        }
+      },
+      () => {
+        if (!controller.signal.aborted) {
+          setState({ status: "error" });
+        }
+      },
+    );
+    return () => controller.abort();
+  }, [api, cloudProfile.status]);
+
+  if (cloudProfile.status === "disabled") {
+    return (
+      <EmptyState title="Inventory unavailable">
+        Authentication must be configured before private inventory can be used.
+      </EmptyState>
+    );
+  }
+  if (cloudProfile.status === "signed-out") {
+    return (
+      <EmptyState title="Sign in to manage inventory">
+        Your ingredients and expiry dates stay private to your account.
+      </EmptyState>
+    );
+  }
+  if (cloudProfile.status === "needs-profile") {
+    return (
+      <EmptyState title="Choose your User Handle">
+        Finish profile setup above before adding private inventory.
+      </EmptyState>
+    );
+  }
+  if (cloudProfile.status === "error") {
+    return (
+      <EmptyState title="Profile unavailable">
+        Your private inventory could not be opened. Please try again.
+      </EmptyState>
+    );
+  }
+  if (cloudProfile.status === "loading" || state.status === "loading") {
+    return <EmptyState title="Loading inventory">Fetching your private ingredients...</EmptyState>;
+  }
+  if (state.status === "error") {
+    return (
+      <EmptyState title="Inventory unavailable">
+        Your inventory could not be loaded. Please try again.
+      </EmptyState>
+    );
+  }
+
+  return (
+    <InventoryManager
+      description="Private inventory stored in Cloudflare D1 and visible only to you."
+      inventoryItems={state.inventoryItems}
+      onDelete={async (item) => {
+        if (!window.confirm(`Delete ${item.name} from your inventory?`)) {
+          return false;
+        }
+        await api.deleteInventoryItem(item.id);
+        setState((current) =>
+          current.status === "ready"
+            ? {
+                inventoryItems: current.inventoryItems.filter(
+                  (candidate) => candidate.id !== item.id,
+                ),
+                status: "ready",
+              }
+            : current,
+        );
+        return true;
+      }}
+      onSave={async ({ createdAt: _createdAt, id, ...input }) => {
+        const savedItem = id
+          ? await api.updateInventoryItem(id, input)
+          : await api.createInventoryItem(input);
+        setState((current) => {
+          if (current.status !== "ready") {
+            return current;
+          }
+          const exists = current.inventoryItems.some((item) => item.id === savedItem.id);
+          return {
+            inventoryItems: exists
+              ? current.inventoryItems.map((item) => (item.id === savedItem.id ? savedItem : item))
+              : [...current.inventoryItems, savedItem],
+            status: "ready",
+          };
+        });
+      }}
+      settings={defaultSettings}
+    />
+  );
+}
+
+type InventorySaveRequest = CloudInventoryWriteInput & {
+  createdAt?: string;
+  id?: string;
+};
+
+function InventoryManager({
+  description,
+  inventoryItems,
+  onDelete,
+  onSave,
+  settings,
+}: {
+  description: string;
+  inventoryItems: InventoryItem[];
+  onDelete: (item: InventoryItem) => Promise<boolean>;
+  onSave: (request: InventorySaveRequest) => Promise<void>;
+  settings: { deprecatedThresholdDays: number };
+}) {
   const now = useMemo(() => new Date(), []);
   const [draft, setDraft] = useState<InventoryDraft>(emptyDraft);
   const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
   async function handleSave() {
     if (!draft.name.trim()) {
@@ -48,9 +215,8 @@ export function InventoryPage() {
       return;
     }
 
-    const timestamp = new Date().toISOString();
-    const item: InventoryItem = {
-      id: draft.id ?? createId("inventory"),
+    const request: InventorySaveRequest = {
+      id: draft.id,
       name: draft.name.trim(),
       category: draft.category,
       quantity: Number(draft.quantity) || 0,
@@ -58,13 +224,37 @@ export function InventoryPage() {
       bestBeforeDate: draft.bestBeforeDate || undefined,
       useByDate: draft.useByDate || undefined,
       hazardous: draft.hazardous,
-      createdAt: draft.createdAt ?? timestamp,
-      updatedAt: timestamp,
+      createdAt: draft.createdAt,
     };
 
-    await repositories.inventory.save(item);
-    setDraft(emptyDraft);
-    setError(null);
+    setSaving(true);
+    try {
+      await onSave(request);
+      setDraft(emptyDraft);
+      setError(null);
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Inventory save failed.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDelete(item: InventoryItem) {
+    setSaving(true);
+    try {
+      const deleted = await onDelete(item);
+      if (!deleted) {
+        return;
+      }
+      if (draft.id === item.id) {
+        setDraft(emptyDraft);
+      }
+      setError(null);
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : "Inventory deletion failed.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   function editItem(item: InventoryItem) {
@@ -86,11 +276,15 @@ export function InventoryPage() {
       <div className="page-heading">
         <div>
           <h1>Installed ingredients</h1>
-          <p>Inventory packages stored locally in IndexedDB.</p>
+          <p>{description}</p>
         </div>
       </div>
 
-      {error ? <div className="flash flash-danger">{error}</div> : null}
+      {error ? (
+        <div className="flash flash-danger" role="alert">
+          {error}
+        </div>
+      ) : null}
 
       <section className="surface readme">
         <div className="form-grid">
@@ -159,8 +353,8 @@ export function InventoryPage() {
             />
           </Field>
           <div className="span-6 action-row">
-            <Button type="button" variant="primary" onClick={handleSave}>
-              <PlusIcon /> {draft.id ? "Save ingredient" : "Add ingredient"}
+            <Button type="button" variant="primary" disabled={saving} onClick={handleSave}>
+              <PlusIcon /> {saving ? "Saving..." : draft.id ? "Save ingredient" : "Add ingredient"}
             </Button>
             {draft.id ? (
               <Button type="button" onClick={() => setDraft(emptyDraft)}>
@@ -196,7 +390,8 @@ export function InventoryPage() {
                   <Button
                     type="button"
                     variant="danger"
-                    onClick={() => repositories.inventory.delete(item.id)}
+                    disabled={saving}
+                    onClick={() => handleDelete(item)}
                   >
                     <TrashIcon /> Delete
                   </Button>
