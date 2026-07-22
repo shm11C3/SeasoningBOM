@@ -4,6 +4,7 @@ import * as seedData from "../db/seedData";
 import type { SeasoningBomApiClient } from "../repositories/cloud-api/SeasoningBomApiClient";
 import type { RepositorySet } from "../repositories/contracts";
 import { createMemoryRepositories } from "../repositories/memory/MemoryRepositories";
+import { createCloudApiClientMock } from "../test/factories/cloudApiFactories";
 import { App } from "./App";
 import { CloudApiProvider } from "./providers/CloudApiProvider";
 import { RepositoryProvider } from "./providers/RepositoryProvider";
@@ -112,6 +113,7 @@ describe("App", () => {
   it.each([
     ["/", "Dashboard route"],
     ["/test-cook/recipe", "Repository route: test-cook/recipe"],
+    ["/new", "Repository editor route: me/new"],
     ["/users/test-cook", "Profile route: test-cook"],
   ])("does not seed local repositories for cloud-backed route %s", async (path, routeText) => {
     const repositories = createMemoryRepositories();
@@ -124,7 +126,7 @@ describe("App", () => {
 
   it("seeds local repositories for routes that have not migrated to the cloud API", async () => {
     const repositories = createMemoryRepositories();
-    renderApp("/new", createCloudClient(), repositories);
+    renderApp("/inventory", createCloudClient(), repositories);
 
     await waitFor(async () => {
       await expect(repositories.recipes.findAll()).resolves.toHaveLength(2);
@@ -143,7 +145,7 @@ describe("App", () => {
           rejectSeed = reject;
         }),
     );
-    renderApp("/new", createCloudClient());
+    renderApp("/inventory", createCloudClient());
 
     await waitFor(() => expect(rejectSeed).toBeTypeOf("function"));
     act(() => navigate("/users/test-cook"));
@@ -159,14 +161,5 @@ describe("App", () => {
 });
 
 function createCloudClient(): SeasoningBomApiClient {
-  return {
-    getPublicProfile: vi.fn(),
-    getRepository: vi.fn(),
-    getRepositoryBom: vi.fn(),
-    getRepositoryDependencies: vi.fn(),
-    getRepositorySecurity: vi.fn(),
-    getUserContributionDay: vi.fn(),
-    getUserContributions: vi.fn(),
-    listPublicRepositories: vi.fn(),
-  };
+  return createCloudApiClientMock();
 }

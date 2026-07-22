@@ -2,6 +2,7 @@ import { Button, Label } from "@primer/react";
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { useCloudApi } from "../../app/providers/CloudApiProvider";
+import { useCloudProfile } from "../../app/providers/CloudProfileProvider";
 import { navigate } from "../../app/routes";
 import {
   type AuditIssue,
@@ -221,6 +222,7 @@ function CloudRecipeDetailPage({
   ownerHandle: string;
   slug: string;
 }) {
+  const cloudProfile = useCloudProfile();
   const [tab, setTab] = useState<Tab>("code");
   const [state, setState] = useState<CloudRepositoryState>({ status: "loading" });
   const [message, setMessage] = useState<{ danger: boolean; text: string } | null>(null);
@@ -288,6 +290,23 @@ function CloudRecipeDetailPage({
     }
   }
 
+  async function handleDelete() {
+    if (!window.confirm(`Delete ${repository.ownerHandle}/${repository.slug}?`)) {
+      return;
+    }
+
+    setMessage(null);
+    try {
+      await api.deleteRepository(repository.ownerHandle, repository.slug);
+      navigate("/");
+    } catch {
+      setMessage({ danger: true, text: "Repository deletion failed. Please try again." });
+    }
+  }
+
+  const isOwner =
+    cloudProfile.status === "ready" && cloudProfile.profile?.username === repository.ownerHandle;
+
   return (
     <>
       {message ? (
@@ -329,9 +348,22 @@ function CloudRecipeDetailPage({
               </span>
             </div>
             <div className="action-row">
+              {isOwner ? (
+                <Button
+                  type="button"
+                  onClick={() => navigate(`/${repository.ownerHandle}/${repository.slug}/edit`)}
+                >
+                  <PencilIcon /> Edit
+                </Button>
+              ) : null}
               <Button type="button" onClick={handleDownloadBom}>
                 <DownloadIcon /> Download SBOM
               </Button>
+              {isOwner ? (
+                <Button type="button" variant="danger" onClick={handleDelete}>
+                  <TrashIcon /> Delete
+                </Button>
+              ) : null}
             </div>
           </div>
         </div>

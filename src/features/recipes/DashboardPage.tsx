@@ -2,6 +2,7 @@ import { Button, Label } from "@primer/react";
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { useCloudApi } from "../../app/providers/CloudApiProvider";
+import { useCloudProfile } from "../../app/providers/CloudProfileProvider";
 import { navigate } from "../../app/routes";
 import { runNomAudit } from "../../domain";
 import type {
@@ -31,6 +32,7 @@ export function DashboardPage() {
 }
 
 function CloudDashboardPage({ api }: { api: SeasoningBomApiClient }) {
+  const cloudProfile = useCloudProfile();
   const [state, setState] = useState<CloudDashboardState>({ status: "loading" });
 
   useEffect(() => {
@@ -74,6 +76,11 @@ function CloudDashboardPage({ api }: { api: SeasoningBomApiClient }) {
           <h1>Recipe repositories</h1>
           <p>Public recipes shared by the SeasoningBOM community.</p>
         </div>
+        {cloudProfile.status === "ready" ? (
+          <Button type="button" onClick={() => navigate("/new")}>
+            <PlusIcon /> New recipe
+          </Button>
+        ) : null}
       </div>
 
       <div className="stat-strip">

@@ -2,6 +2,7 @@ import { render, screen } from "@testing-library/react";
 import { useEffect, useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import type { SeasoningBomApiClient } from "../../repositories/cloud-api/SeasoningBomApiClient";
+import { createCloudApiClientMock } from "../../test/factories/cloudApiFactories";
 import { CloudApiProvider, useCloudApi } from "./CloudApiProvider";
 
 describe("CloudApiProvider", () => {
@@ -56,14 +57,5 @@ function RequestProbe() {
 }
 
 function createClient(): SeasoningBomApiClient {
-  return {
-    getPublicProfile: vi.fn(),
-    getRepository: vi.fn(),
-    getRepositoryBom: vi.fn(),
-    getRepositoryDependencies: vi.fn(),
-    getRepositorySecurity: vi.fn(),
-    getUserContributionDay: vi.fn(),
-    getUserContributions: vi.fn(),
-    listPublicRepositories: vi.fn(),
-  };
+  return createCloudApiClientMock();
 }

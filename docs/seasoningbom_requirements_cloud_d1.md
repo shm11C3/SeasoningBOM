@@ -760,7 +760,7 @@ GET    /api/repos/:owner/:repo/security
 
 `/security` は Repository content 由来の Recipe Alert だけを返し、ログイン本人の Inventory Audit は返さない。
 
-`POST /api/repos` と `POST /api/repos/:owner/:repo/fork` は、それぞれ `recipe_created` と `repository_forked` の Contribution event を Repository 書き込みと同じ D1 batch で記録する。`PATCH /api/repos/:owner/:repo` は name、slug、description、version、servings、README、license のいずれかが変わる場合だけ `recipe_updated` を同じ D1 batch で記録する。
+`POST /api/repos` と `POST /api/repos/:owner/:repo/fork` は、それぞれ `recipe_created` と `repository_forked` の Contribution event を Repository 書き込みと同じ D1 batch で記録する。`POST /api/repos` と `PATCH /api/repos/:owner/:repo` は optional な `components` を full manifest として受け付け、指定時は metadata、Contribution、component、transitive dependency を同じ D1 batch で保存する。`PATCH` は name、slug、description、version、servings、README、license、component manifest のいずれかが変わる場合だけ `recipe_updated` を記録する。
 
 Private Repository に対する `recipe_created` / `recipe_updated` event は event visibility を `private` にする。
 

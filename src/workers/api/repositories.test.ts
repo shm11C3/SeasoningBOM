@@ -1806,6 +1806,56 @@ describe("repository API handlers", () => {
     ]);
   });
 
+  it("passes a normalized dependency manifest into the atomic repository create", async () => {
+    const baseRepository = createRecipeRepository([]);
+    let createInput:
+      | Parameters<RecipeRepositoryMetadataRepository["createWithContribution"]>[0]
+      | undefined;
+    const response = await handlePostRepository(
+      createValidPostRequest({
+        components: [
+          createDependencyComponentBody({
+            transitiveDependencies: [
+              {
+                allergens: ["soy"],
+                dependencyType: "transitive",
+                name: "soy sauce",
+              },
+            ],
+          }),
+        ],
+      }),
+      owner,
+      env,
+      {
+        createRepositoryId: () => "repo_manifest",
+        recipeRepositories: {
+          ...baseRepository,
+          async createWithContribution(input) {
+            createInput = input;
+            return baseRepository.createWithContribution(input);
+          },
+        },
+      },
+    );
+
+    expect(response.status).toBe(201);
+    expect(createInput?.components).toEqual([
+      expect.objectContaining({
+        id: "component_rice",
+        ingredientName: "rice",
+        recipeId: "repo_manifest",
+        transitiveDependencies: [
+          expect.objectContaining({
+            allergens: ["soy"],
+            dependencyType: "transitive",
+            name: "soy sauce",
+          }),
+        ],
+      }),
+    ]);
+  });
+
   it("keeps private repository creation contribution details private", async () => {
     const recipeRepositories = createRecipeRepository([]);
     const response = await handlePostRepository(
@@ -1895,6 +1945,80 @@ describe("repository API handlers", () => {
         visibility: "private",
       },
     ]);
+  });
+
+  it("updates metadata and a changed dependency manifest in one repository write", async () => {
+    const baseRepository = createRecipeRepository([privateRepository]);
+    let updateInput:
+      | Parameters<RecipeRepositoryMetadataRepository["updateWithContribution"]>[0]
+      | null = null;
+    const response = await handlePatchRepository(
+      new Request("https://example.test/api/repos/test-user/private-curry", {
+        body: JSON.stringify({
+          components: [
+            createDependencyComponentBody({
+              ingredientName: "brown rice",
+              unit: "go",
+            }),
+          ],
+          version: "0.2.0",
+        }),
+        method: "PATCH",
+      }),
+      "test-user",
+      "private-curry",
+      owner,
+      env,
+      {
+        recipeComponents: createRecipeComponentRepository([recipeComponent]),
+        recipeRepositories: {
+          ...baseRepository,
+          async updateWithContribution(input) {
+            updateInput = input;
+            return baseRepository.updateWithContribution(input);
+          },
+        },
+      },
+    );
+
+    expect(response.status).toBe(200);
+    expect(updateInput).toMatchObject({
+      components: [
+        expect.objectContaining({
+          ingredientName: "brown rice",
+          recipeId: "repo_private",
+        }),
+      ],
+      version: "0.2.0",
+    });
+  });
+
+  it("does not record a contribution for an unchanged dependency manifest", async () => {
+    const recipeRepositories = createRecipeRepository([privateRepository]);
+    const storedComponent = {
+      ...recipeComponent,
+      transitiveDependencies: recipeComponent.transitiveDependencies.map((dependency) => ({
+        ...dependency,
+        id: "stored_dependency_id",
+      })),
+    };
+    const response = await handlePatchRepository(
+      new Request("https://example.test/api/repos/test-user/private-curry", {
+        body: JSON.stringify({ components: [recipeComponent] }),
+        method: "PATCH",
+      }),
+      "test-user",
+      "private-curry",
+      owner,
+      env,
+      {
+        recipeComponents: createRecipeComponentRepository([storedComponent]),
+        recipeRepositories,
+      },
+    );
+
+    expect(response.status).toBe(200);
+    expect(recipeRepositories.listContributionEvents()).toEqual([]);
   });
 
   it("does not record a contribution for visibility-only repository updates", async () => {
