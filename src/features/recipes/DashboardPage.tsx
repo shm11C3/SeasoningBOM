@@ -1,4 +1,5 @@
 import { Button, Label } from "@primer/react";
+import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { useCloudApi } from "../../app/providers/CloudApiProvider";
 import { navigate } from "../../app/routes";
@@ -106,6 +107,34 @@ function CloudDashboardPage({ api }: { api: SeasoningBomApiClient }) {
 
 function CloudRepositoryCard({ repository }: { repository: CloudRepository }) {
   return (
+    <RepositoryCardShell
+      emptyDescription="No description provided."
+      footer={
+        <>
+          <span>{repository.servings} servings</span>
+          {repository.sourceRepositoryId ? (
+            <span>Forked from {repository.sourceRepositoryId}</span>
+          ) : null}
+        </>
+      }
+      repository={repository}
+    />
+  );
+}
+
+function RepositoryCardShell({
+  emptyDescription,
+  footer,
+  repository,
+}: {
+  emptyDescription?: string;
+  footer: ReactNode;
+  repository: Pick<
+    CloudRepository,
+    "description" | "name" | "ownerHandle" | "slug" | "tags" | "version" | "visibility"
+  >;
+}) {
+  return (
     <AppLink
       aria-label={`Open ${repository.name}`}
       className="repo-card repo-card-link"
@@ -117,7 +146,7 @@ function CloudRepositoryCard({ repository }: { repository: CloudRepository }) {
           {repository.ownerHandle}/{repository.slug}
         </span>
       </div>
-      <p className="muted">{repository.description ?? "No description provided."}</p>
+      <p className="muted">{repository.description ?? emptyDescription}</p>
       <div className="label-row">
         <Label>{repository.visibility}</Label>
         <Label variant="accent">v{repository.version}</Label>
@@ -127,12 +156,7 @@ function CloudRepositoryCard({ repository }: { repository: CloudRepository }) {
           </Label>
         ))}
       </div>
-      <div className="meta-line muted">
-        <span>{repository.servings} servings</span>
-        {repository.sourceRepositoryId ? (
-          <span>Forked from {repository.sourceRepositoryId}</span>
-        ) : null}
-      </div>
+      <div className="meta-line muted">{footer}</div>
     </AppLink>
   );
 }
@@ -198,44 +222,27 @@ function LocalDashboardPage() {
               const recipeComponents = componentsByRecipeId[recipe.id] ?? [];
               const audit = audits.find((item) => item.recipeId === recipe.id);
               return (
-                <AppLink
-                  aria-label={`Open ${recipe.name}`}
-                  className="repo-card repo-card-link"
+                <RepositoryCardShell
+                  footer={
+                    <>
+                      <span>
+                        <PackageIcon /> {recipeComponents.length} dependencies
+                      </span>
+                      <span>
+                        <StarIcon /> {fakeStars(recipe, recipeComponents)}
+                      </span>
+                      <span>{fakeForks(recipe)} forks</span>
+                      <span>
+                        <AlertIcon />{" "}
+                        {(audit?.recipeAlerts.length ?? 0) +
+                          (audit?.inventoryAudit.summary.totalIssues ?? 0)}{" "}
+                        alerts
+                      </span>
+                    </>
+                  }
                   key={recipe.id}
-                  to={`/${recipe.ownerHandle}/${recipe.slug}`}
-                >
-                  <div className="repo-title">
-                    <RepoIcon />
-                    <span className="repo-name">
-                      {recipe.ownerHandle}/{recipe.slug}
-                    </span>
-                  </div>
-                  <p className="muted">{recipe.description}</p>
-                  <div className="label-row">
-                    <Label>{recipe.visibility}</Label>
-                    <Label variant="accent">v{recipe.version}</Label>
-                    {recipe.tags.map((tag) => (
-                      <Label key={tag} variant="secondary">
-                        {tag}
-                      </Label>
-                    ))}
-                  </div>
-                  <div className="meta-line muted">
-                    <span>
-                      <PackageIcon /> {recipeComponents.length} dependencies
-                    </span>
-                    <span>
-                      <StarIcon /> {fakeStars(recipe, recipeComponents)}
-                    </span>
-                    <span>{fakeForks(recipe)} forks</span>
-                    <span>
-                      <AlertIcon />{" "}
-                      {(audit?.recipeAlerts.length ?? 0) +
-                        (audit?.inventoryAudit.summary.totalIssues ?? 0)}{" "}
-                      alerts
-                    </span>
-                  </div>
-                </AppLink>
+                  repository={recipe}
+                />
               );
             })}
           </div>
