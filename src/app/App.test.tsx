@@ -1,18 +1,13 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import * as seedData from "../db/seedData";
 import type { SeasoningBomApiClient } from "../repositories/cloud-api/SeasoningBomApiClient";
+import type { RepositorySet } from "../repositories/contracts";
 import { createMemoryRepositories } from "../repositories/memory/MemoryRepositories";
 import { App } from "./App";
 import { CloudApiProvider } from "./providers/CloudApiProvider";
 import { RepositoryProvider } from "./providers/RepositoryProvider";
-
-const seedDataMock = vi.hoisted(() => ({
-  ensureSeedData: vi.fn(),
-}));
-
-vi.mock("../db/seedData", () => ({
-  ensureSeedData: seedDataMock.ensureSeedData,
-}));
+import { navigate } from "./routes";
 
 vi.mock("../features/recipes/DashboardPage", () => ({
   DashboardPage: () => "Dashboard route",
@@ -48,21 +43,27 @@ vi.mock("../features/backup/BackupPage", () => ({
   BackupPage: () => "Backup route",
 }));
 
-function renderApp(path = "/", cloudApi: SeasoningBomApiClient | null = null) {
+function renderApp(
+  path = "/",
+  cloudApi: SeasoningBomApiClient | null = null,
+  repositories: RepositorySet = createMemoryRepositories(),
+) {
   window.history.pushState({}, "", path);
-  return render(
-    <CloudApiProvider client={cloudApi}>
-      <RepositoryProvider repositories={createMemoryRepositories()}>
-        <App />
-      </RepositoryProvider>
-    </CloudApiProvider>,
-  );
+  return {
+    ...render(
+      <CloudApiProvider client={cloudApi}>
+        <RepositoryProvider repositories={repositories}>
+          <App />
+        </RepositoryProvider>
+      </CloudApiProvider>,
+    ),
+    repositories,
+  };
 }
 
 describe("App", () => {
   beforeEach(() => {
-    seedDataMock.ensureSeedData.mockReset();
-    seedDataMock.ensureSeedData.mockResolvedValue(undefined);
+    vi.restoreAllMocks();
   });
 
   it.each([
@@ -101,25 +102,61 @@ describe("App", () => {
     [new Error("seed failed"), "seed failed"],
     ["plain failure", "Seed data failed to initialize."],
   ])("renders seed initialization failures", async (error, message) => {
-    seedDataMock.ensureSeedData.mockRejectedValueOnce(error);
+    vi.spyOn(seedData, "ensureSeedData").mockRejectedValueOnce(error);
 
     renderApp("/");
 
     await waitFor(() => expect(screen.getByText(message)).toBeInTheDocument());
   });
 
-  it("does not seed IndexedDB for a cloud-backed profile route", () => {
-    renderApp("/users/test-cook", {
-      getPublicProfile: vi.fn(),
-      getUserContributionDay: vi.fn(),
-      getUserContributions: vi.fn(),
-      listPublicRepositories: vi.fn(),
-    });
+  it("does not seed local repositories for a cloud-backed profile route", async () => {
+    const repositories = createMemoryRepositories();
+    renderApp(
+      "/users/test-cook",
+      {
+        getPublicProfile: vi.fn(),
+        getUserContributionDay: vi.fn(),
+        getUserContributions: vi.fn(),
+        listPublicRepositories: vi.fn(),
+      },
+      repositories,
+    );
 
-    expect(seedDataMock.ensureSeedData).not.toHaveBeenCalled();
+    await waitFor(() => expect(screen.getByText("Profile route: test-cook")).toBeInTheDocument());
+    await Promise.resolve();
+    expect(await repositories.recipes.findAll()).toEqual([]);
   });
 
-  it("keeps seeding IndexedDB for routes that have not migrated to the cloud API", () => {
+  it("seeds local repositories for routes that have not migrated to the cloud API", async () => {
+    const repositories = createMemoryRepositories();
+    renderApp(
+      "/",
+      {
+        getPublicProfile: vi.fn(),
+        getUserContributionDay: vi.fn(),
+        getUserContributions: vi.fn(),
+        listPublicRepositories: vi.fn(),
+      },
+      repositories,
+    );
+
+    await waitFor(async () => {
+      await expect(repositories.recipes.findAll()).resolves.toHaveLength(2);
+    });
+    await expect(repositories.recipes.findById("recipe-curry-rice")).resolves.toMatchObject({
+      ownerHandle: "me",
+      slug: "curry-rice",
+    });
+  });
+
+  it("ignores stale seed failures after navigating to a cloud-backed profile", async () => {
+    let rejectSeed: ((reason: unknown) => void) | undefined;
+    vi.spyOn(seedData, "ensureSeedData").mockImplementation(
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          rejectSeed = reject;
+        }),
+    );
     renderApp("/", {
       getPublicProfile: vi.fn(),
       getUserContributionDay: vi.fn(),
@@ -127,6 +164,15 @@ describe("App", () => {
       listPublicRepositories: vi.fn(),
     });
 
-    expect(seedDataMock.ensureSeedData).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(rejectSeed).toBeTypeOf("function"));
+    act(() => navigate("/users/test-cook"));
+    expect(screen.getByText("Profile route: test-cook")).toBeInTheDocument();
+
+    await act(async () => {
+      rejectSeed?.(new Error("stale seed failure"));
+      await Promise.resolve();
+    });
+
+    expect(screen.queryByText("stale seed failure")).not.toBeInTheDocument();
   });
 });

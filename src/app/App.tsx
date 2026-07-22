@@ -32,14 +32,24 @@ export function App() {
   const routeUsesCloudData = cloudApi !== null && route.name === "profile";
 
   useEffect(() => {
+    let active = true;
+
     if (routeUsesCloudData) {
       setSeedError(null);
-      return;
+      return () => {
+        active = false;
+      };
     }
 
     ensureSeedData(repositories).catch((error: unknown) => {
-      setSeedError(error instanceof Error ? error.message : "Seed data failed to initialize.");
+      if (active) {
+        setSeedError(error instanceof Error ? error.message : "Seed data failed to initialize.");
+      }
     });
+
+    return () => {
+      active = false;
+    };
   }, [repositories, routeUsesCloudData]);
 
   return (
