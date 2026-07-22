@@ -86,6 +86,11 @@ export type CloudRepositoryAudit = {
   repository: CloudRepository;
 };
 
+export type CloudRepositoryStarState = {
+  repository: CloudRepository;
+  starred: boolean;
+};
+
 export type CloudInventoryItem = InventoryItem;
 
 export type CloudInventoryWriteInput = {
@@ -122,6 +127,7 @@ export interface SeasoningBomApiClient {
   createRepository(input: CloudRepositoryWriteInput): Promise<CloudRepository>;
   deleteInventoryItem(id: string): Promise<void>;
   deleteRepository(ownerHandle: string, slug: string): Promise<void>;
+  forkRepository(ownerHandle: string, slug: string): Promise<CloudRepository>;
   getCurrentProfile(signal?: AbortSignal): Promise<CloudUserProfile>;
   getPublicProfile(username: string, signal?: AbortSignal): Promise<CloudUserProfile>;
   getUserContributions(username: string, signal?: AbortSignal): Promise<CloudContributionList>;
@@ -142,6 +148,11 @@ export interface SeasoningBomApiClient {
     slug: string,
     signal?: AbortSignal,
   ): Promise<CloudRepositorySecurity>;
+  getRepositoryStar(
+    ownerHandle: string,
+    slug: string,
+    signal?: AbortSignal,
+  ): Promise<CloudRepositoryStarState>;
   listInventory(signal?: AbortSignal): Promise<CloudInventoryItem[]>;
   listPublicRepositories(signal?: AbortSignal): Promise<CloudRepository[]>;
   runRepositoryAudit(
@@ -149,6 +160,8 @@ export interface SeasoningBomApiClient {
     slug: string,
     signal?: AbortSignal,
   ): Promise<CloudRepositoryAudit>;
+  starRepository(ownerHandle: string, slug: string): Promise<CloudRepositoryStarState>;
+  unstarRepository(ownerHandle: string, slug: string): Promise<void>;
   updateInventoryItem(id: string, input: CloudInventoryWriteInput): Promise<CloudInventoryItem>;
   updateRepository(
     ownerHandle: string,
@@ -252,6 +265,13 @@ export function createSeasoningBomApiClient(
     deleteRepository(ownerHandle, slug) {
       return mutate<void>("DELETE", repositoryPath(ownerHandle, slug));
     },
+    async forkRepository(ownerHandle, slug) {
+      const response = await mutate<{ repository: CloudRepository }>(
+        "POST",
+        `${repositoryPath(ownerHandle, slug)}/fork`,
+      );
+      return response.repository;
+    },
     async getCurrentProfile(signal) {
       const response = await get<{ profile: CloudUserProfile }>("/me", signal);
       return response.profile;
@@ -294,6 +314,9 @@ export function createSeasoningBomApiClient(
     getRepositorySecurity(ownerHandle, slug, signal) {
       return get<CloudRepositorySecurity>(`${repositoryPath(ownerHandle, slug)}/security`, signal);
     },
+    getRepositoryStar(ownerHandle, slug, signal) {
+      return get<CloudRepositoryStarState>(`${repositoryPath(ownerHandle, slug)}/star`, signal);
+    },
     async listInventory(signal) {
       const response = await get<{ inventoryItems: CloudInventoryItem[] }>("/inventory", signal);
       return response.inventoryItems;
@@ -309,6 +332,12 @@ export function createSeasoningBomApiClient(
         undefined,
         signal,
       );
+    },
+    starRepository(ownerHandle, slug) {
+      return mutate<CloudRepositoryStarState>("POST", `${repositoryPath(ownerHandle, slug)}/star`);
+    },
+    unstarRepository(ownerHandle, slug) {
+      return mutate<void>("DELETE", `${repositoryPath(ownerHandle, slug)}/star`);
     },
     async updateInventoryItem(id, input) {
       const response = await mutate<{ inventoryItem: CloudInventoryItem }>(

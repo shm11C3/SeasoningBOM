@@ -344,6 +344,51 @@ describe("RecipeDetailPage cloud repository", () => {
     await waitFor(() => expect(window.location.pathname).toBe("/"));
   });
 
+  it("stars, unstars, and forks a cloud repository for a signed-in viewer", async () => {
+    const user = userEvent.setup();
+    const getRepositoryStar = vi.fn().mockResolvedValue({ repository, starred: false });
+    const starRepository = vi.fn().mockResolvedValue({ repository, starred: true });
+    const unstarRepository = vi.fn().mockResolvedValue(undefined);
+    const forkRepository = vi.fn().mockResolvedValue({
+      ...repository,
+      id: "repo_fork",
+      ownerHandle: "signed-in-viewer",
+      sourceRepositoryId: repository.id,
+    });
+    cloudProfileMock.current = {
+      profile: { username: "signed-in-viewer" },
+      status: "ready",
+    };
+    renderCloudDetail(
+      createCloudClient({
+        forkRepository,
+        getRepositoryStar,
+        starRepository,
+        unstarRepository,
+      }),
+    );
+
+    const starButton = await screen.findByRole("button", { name: "Star" });
+    expect(screen.getByRole("button", { name: "Fork" })).toBeInTheDocument();
+    expect(getRepositoryStar).toHaveBeenCalledWith(
+      "test-cook",
+      "cloud-curry",
+      expect.any(AbortSignal),
+    );
+
+    await user.click(starButton);
+    expect(await screen.findByRole("button", { name: "Unstar" })).toBeInTheDocument();
+    expect(starRepository).toHaveBeenCalledWith("test-cook", "cloud-curry");
+
+    await user.click(screen.getByRole("button", { name: "Unstar" }));
+    expect(await screen.findByText("Star removed.")).toHaveAttribute("role", "status");
+    expect(unstarRepository).toHaveBeenCalledWith("test-cook", "cloud-curry");
+
+    await user.click(screen.getByRole("button", { name: "Fork" }));
+    await waitFor(() => expect(window.location.pathname).toBe("/signed-in-viewer/cloud-curry"));
+    expect(forkRepository).toHaveBeenCalledWith("test-cook", "cloud-curry");
+  });
+
   it("keeps repository metadata visible when optional resources fail", async () => {
     const user = userEvent.setup();
     renderCloudDetail(

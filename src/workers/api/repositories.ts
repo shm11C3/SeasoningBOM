@@ -92,7 +92,7 @@ type RepositoryAuditResponseBody = {
 };
 
 type RepositoryStarResponseBody = {
-  starred: true;
+  starred: boolean;
   repository: SerializedRepository;
 };
 
@@ -720,6 +720,43 @@ export async function handleDeleteRepositoryDependency(
   }
 }
 
+export async function handleGetRepositoryStar(
+  request: Request,
+  ownerHandle: string,
+  slug: string,
+  owner: UserProfile,
+  env: WorkerEnv,
+  options: RepositoryRouteOptions = {},
+): Promise<Response> {
+  const repositories = getRecipeRepository(env, options);
+  const stars = getRepositoryStarRepository(env, options);
+  const repositoryResult = await findReadableRepository(
+    request,
+    repositories,
+    ownerHandle,
+    slug,
+    env,
+    options,
+    "Failed to load repository Star state.",
+  );
+  if (!repositoryResult.ok) {
+    return repositoryResult.response;
+  }
+
+  try {
+    const starred = await stars.isStarred({
+      repositoryId: repositoryResult.repository.id,
+      userId: owner.id,
+    });
+    return jsonResponse({
+      repository: serializeRepository(repositoryResult.repository),
+      starred,
+    } satisfies RepositoryStarResponseBody);
+  } catch {
+    return serverError("Failed to load repository Star state.");
+  }
+}
+
 export async function handlePostRepositoryStar(
   request: Request,
   ownerHandle: string,
@@ -806,6 +843,7 @@ export async function handlePostRepositoryFork(
   options: RepositoryRouteOptions = {},
 ): Promise<Response> {
   const repositories = getRecipeRepository(env, options);
+  const components = getRecipeComponentRepository(env, options);
 
   let sourceRepository: CloudRecipeRepository | null;
   try {
@@ -840,9 +878,17 @@ export async function handlePostRepositoryFork(
   const now = (options.now?.() ?? new Date()).toISOString();
   const id = options.createRepositoryId?.() ?? crypto.randomUUID();
   const contributionEventId = options.createContributionEventId?.() ?? crypto.randomUUID();
+  let sourceComponents: RecipeComponent[];
+  try {
+    sourceComponents = await components.listByRepositoryId(sourceRepository.id);
+  } catch {
+    return serverError("Failed to fork repository.");
+  }
+  const forkedComponents = cloneComponentsForFork(sourceComponents, id, options);
 
   try {
     const { repository } = await repositories.createWithContribution({
+      components: forkedComponents,
       contribution: {
         eventType: "repository_forked",
         id: contributionEventId,
@@ -893,6 +939,25 @@ export async function handlePostRepositoryFork(
 
     return serverError("Failed to fork repository.");
   }
+}
+
+function cloneComponentsForFork(
+  components: RecipeComponent[],
+  repositoryId: string,
+  options: RepositoryRouteOptions,
+): RecipeComponent[] {
+  return components.map((component) => ({
+    ...component,
+    allergens: [...component.allergens],
+    alternatives: [...component.alternatives],
+    id: options.createRecipeComponentId?.() ?? crypto.randomUUID(),
+    recipeId: repositoryId,
+    transitiveDependencies: component.transitiveDependencies.map((dependency) => ({
+      ...dependency,
+      allergens: [...dependency.allergens],
+      id: options.createIngredientDependencyId?.() ?? crypto.randomUUID(),
+    })),
+  }));
 }
 
 async function findReadableRepository(

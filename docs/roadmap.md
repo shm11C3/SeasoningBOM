@@ -138,7 +138,7 @@ Exit criteria:
 
 Goal: 既存 React UI を Cloud D1 API に接続し、GitHub 風共有体験へ移行する。
 
-Status: current phase
+Status: complete
 
 Current implementation checkpoint:
 
@@ -154,10 +154,11 @@ Current implementation checkpoint:
 - Signed-in users bootstrap their stable User Handle through `GET /api/me` and `POST /api/me/profile`. Cloud repository create/edit/delete requires a bearer token and saves metadata plus the full dependency manifest atomically.
 - `/inventory` lists and mutates only the signed-in user's D1 inventory. Cloud mode does not seed or subscribe to IndexedDB for this route, and signed-out visitors do not request private inventory.
 - Signed-in repository viewers receive `Your inventory audit` from the protected `/audit` endpoint. Public Recipe Alerts remain a separate public response, and signed-out visitors never request or render inventory-derived audit details.
+- Signed-in repository viewers can read and toggle their Star state. Non-owners can Fork a readable shared repository, including its complete component and transitive-dependency snapshot, and continue from the new owner URL.
 
 Remaining deliverables:
 
-- Star and Fork interactions
+- None. Phase 6 release polish is next.
 
 Exit criteria:
 

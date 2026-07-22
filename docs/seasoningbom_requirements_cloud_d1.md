@@ -739,6 +739,7 @@ GET    /api/repos/:owner/:repo
 PATCH  /api/repos/:owner/:repo
 DELETE /api/repos/:owner/:repo
 
+GET    /api/repos/:owner/:repo/star
 POST   /api/repos/:owner/:repo/star
 DELETE /api/repos/:owner/:repo/star
 
@@ -760,7 +761,9 @@ GET    /api/repos/:owner/:repo/security
 
 `/security` は Repository content 由来の Recipe Alert だけを返し、ログイン本人の Inventory Audit は返さない。
 
-`POST /api/repos` と `POST /api/repos/:owner/:repo/fork` は、それぞれ `recipe_created` と `repository_forked` の Contribution event を Repository 書き込みと同じ D1 batch で記録する。`POST /api/repos` と `PATCH /api/repos/:owner/:repo` は optional な `components` を full manifest として受け付け、指定時は metadata、Contribution、component、transitive dependency を同じ D1 batch で保存する。`PATCH` は name、slug、description、version、servings、README、license、component manifest のいずれかが変わる場合だけ `recipe_updated` を記録する。
+`GET /api/repos/:owner/:repo/star` はログイン本人の Star 状態を返す。`POST` と `DELETE` は Star の付与と解除に使い、いずれも bootstrapped profile を必須とする。
+
+`POST /api/repos` と `POST /api/repos/:owner/:repo/fork` は、それぞれ `recipe_created` と `repository_forked` の Contribution event を Repository 書き込みと同じ D1 batch で記録する。Fork は Repository metadata に加えて component と transitive dependency の完全な snapshot を新しい ID で複製し、Contribution と同じ batch で保存する。`POST /api/repos` と `PATCH /api/repos/:owner/:repo` は optional な `components` を full manifest として受け付け、指定時は metadata、Contribution、component、transitive dependency を同じ D1 batch で保存する。`PATCH` は name、slug、description、version、servings、README、license、component manifest のいずれかが変わる場合だけ `recipe_updated` を記録する。
 
 Private Repository に対する `recipe_created` / `recipe_updated` event は event visibility を `private` にする。
 

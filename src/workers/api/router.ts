@@ -35,6 +35,7 @@ import {
   handleGetRepositoryBom,
   handleGetRepositoryDependencies,
   handleGetRepositorySecurity,
+  handleGetRepositoryStar,
   handleListRepositories,
   handlePatchRepository,
   handlePostRepository,
@@ -117,7 +118,7 @@ const coreRoutes = {
     path: "/api/repos/:owner/:repo/cooking-logs",
   },
   repositoryStar: {
-    allowedMethods: ["POST", "DELETE"],
+    allowedMethods: ["GET", "POST", "DELETE"],
     path: "/api/repos/:owner/:repo/star",
   },
   repositoryFork: {
@@ -678,6 +679,35 @@ export function createWorkerApiApp(options: WorkerApiOptions = {}): Hono<WorkerA
     methodNotAllowed(coreRoutes.repositoryCookingLogs.allowedMethods),
   );
 
+  app.get(coreRoutes.repositoryStar.path, async (context) => {
+    const params = getRepositoryParams(
+      context.req.param("owner"),
+      context.req.param("repo"),
+      context.req.raw,
+    );
+    if (!params.ok) {
+      return params.response;
+    }
+
+    const profileResult = await requireAuthenticatedProfile(
+      context.req.raw,
+      context.env,
+      "GET",
+      options,
+    );
+    if (!profileResult.ok) {
+      return profileResult.response;
+    }
+
+    return handleGetRepositoryStar(
+      context.req.raw,
+      params.ownerHandle,
+      params.slug,
+      profileResult.profile,
+      context.env,
+      options,
+    );
+  });
   app.post(coreRoutes.repositoryStar.path, async (context) => {
     const params = getRepositoryParams(
       context.req.param("owner"),
