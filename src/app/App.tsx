@@ -29,7 +29,9 @@ export function App() {
   const cloudApi = useCloudApi();
   const repositories = useRepositories();
   const [seedError, setSeedError] = useState<string | null>(null);
-  const routeUsesCloudData = cloudApi !== null && route.name === "profile";
+  const routeUsesCloudData =
+    cloudApi !== null &&
+    (route.name === "dashboard" || route.name === "profile" || route.name === "repository");
 
   useEffect(() => {
     let active = true;

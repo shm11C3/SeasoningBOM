@@ -1,5 +1,10 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { CloudApiProvider } from "../../app/providers/CloudApiProvider";
+import type {
+  CloudRepository,
+  SeasoningBomApiClient,
+} from "../../repositories/cloud-api/SeasoningBomApiClient";
 import {
   makeComponent,
   makeInventoryItem,
@@ -79,3 +84,111 @@ describe("DashboardPage repository cards", () => {
     expect(within(curryCard).getByText("0 alerts")).toBeInTheDocument();
   });
 });
+
+describe("DashboardPage cloud repositories", () => {
+  const repository: CloudRepository = {
+    createdAt: "2026-07-23T00:00:00.000Z",
+    description: "A shared curry recipe",
+    id: "repo_cloud",
+    name: "Cloud Curry",
+    ownerHandle: "test-cook",
+    readme: "# Cloud Curry",
+    servings: 4,
+    slug: "cloud-curry",
+    tags: ["curry"],
+    updatedAt: "2026-07-23T00:00:00.000Z",
+    version: "1.0.0",
+    visibility: "public",
+  };
+
+  it("loads public repositories without local-only counts or actions", async () => {
+    const client = createCloudClient({
+      listPublicRepositories: vi.fn().mockResolvedValue([
+        repository,
+        {
+          ...repository,
+          description: undefined,
+          id: "repo_fork",
+          name: "Forked Curry",
+          ownerHandle: "another-cook",
+          slug: "forked-curry",
+          sourceRepositoryId: repository.id,
+          tags: [],
+        },
+      ]),
+    });
+
+    renderCloudDashboard(client);
+
+    expect(screen.getByText("Loading repositories")).toBeInTheDocument();
+    const card = await screen.findByRole("link", { name: "Open Cloud Curry" });
+    expect(within(card).getByText("test-cook/cloud-curry")).toBeInTheDocument();
+    expect(screen.getByText("No description provided.")).toBeInTheDocument();
+    expect(screen.getByText("Forked from repo_cloud")).toBeInTheDocument();
+    expect(screen.getAllByText("2", { selector: ".stat strong" })).toHaveLength(2);
+    expect(screen.queryByRole("button", { name: "New recipe" })).not.toBeInTheDocument();
+    expect(screen.queryByText(/stars|forks|alerts/)).not.toBeInTheDocument();
+  });
+
+  it("renders cloud empty and failure states", async () => {
+    const { rerender } = renderCloudDashboard(
+      createCloudClient({ listPublicRepositories: vi.fn().mockResolvedValue([]) }),
+    );
+    expect(await screen.findByText("No public recipe repositories")).toBeInTheDocument();
+
+    rerender(
+      <CloudApiProvider
+        client={createCloudClient({
+          listPublicRepositories: vi.fn().mockRejectedValue(new Error("offline")),
+        })}
+      >
+        <DashboardPage />
+      </CloudApiProvider>,
+    );
+    expect(await screen.findByText("Repositories unavailable")).toBeInTheDocument();
+  });
+
+  it("aborts repository loading when the page unmounts", async () => {
+    let signal: AbortSignal | undefined;
+    let resolveRepositories: ((repositories: CloudRepository[]) => void) | undefined;
+    const client = createCloudClient({
+      listPublicRepositories: vi.fn().mockImplementation((requestSignal?: AbortSignal) => {
+        signal = requestSignal;
+        return new Promise<CloudRepository[]>((resolve) => {
+          resolveRepositories = resolve;
+        });
+      }),
+    });
+    const { unmount } = renderCloudDashboard(client);
+
+    await waitFor(() => expect(signal).toBeDefined());
+    act(() => unmount());
+    expect(signal?.aborted).toBe(true);
+    await act(async () => {
+      resolveRepositories?.([repository]);
+      await Promise.resolve();
+    });
+  });
+});
+
+function renderCloudDashboard(client: SeasoningBomApiClient) {
+  return render(
+    <CloudApiProvider client={client}>
+      <DashboardPage />
+    </CloudApiProvider>,
+  );
+}
+
+function createCloudClient(overrides: Partial<SeasoningBomApiClient> = {}): SeasoningBomApiClient {
+  return {
+    getPublicProfile: vi.fn(),
+    getRepository: vi.fn(),
+    getRepositoryBom: vi.fn(),
+    getRepositoryDependencies: vi.fn(),
+    getRepositorySecurity: vi.fn(),
+    getUserContributionDay: vi.fn(),
+    getUserContributions: vi.fn(),
+    listPublicRepositories: vi.fn().mockResolvedValue([]),
+    ...overrides,
+  };
+}

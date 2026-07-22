@@ -109,12 +109,20 @@ describe("App", () => {
     await waitFor(() => expect(screen.getByText(message)).toBeInTheDocument());
   });
 
-  it("does not seed local repositories for a cloud-backed profile route", async () => {
+  it.each([
+    ["/", "Dashboard route"],
+    ["/test-cook/recipe", "Repository route: test-cook/recipe"],
+    ["/users/test-cook", "Profile route: test-cook"],
+  ])("does not seed local repositories for cloud-backed route %s", async (path, routeText) => {
     const repositories = createMemoryRepositories();
     renderApp(
-      "/users/test-cook",
+      path,
       {
         getPublicProfile: vi.fn(),
+        getRepository: vi.fn(),
+        getRepositoryBom: vi.fn(),
+        getRepositoryDependencies: vi.fn(),
+        getRepositorySecurity: vi.fn(),
         getUserContributionDay: vi.fn(),
         getUserContributions: vi.fn(),
         listPublicRepositories: vi.fn(),
@@ -122,7 +130,7 @@ describe("App", () => {
       repositories,
     );
 
-    await waitFor(() => expect(screen.getByText("Profile route: test-cook")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(routeText)).toBeInTheDocument());
     await Promise.resolve();
     expect(await repositories.recipes.findAll()).toEqual([]);
   });
@@ -130,9 +138,13 @@ describe("App", () => {
   it("seeds local repositories for routes that have not migrated to the cloud API", async () => {
     const repositories = createMemoryRepositories();
     renderApp(
-      "/",
+      "/new",
       {
         getPublicProfile: vi.fn(),
+        getRepository: vi.fn(),
+        getRepositoryBom: vi.fn(),
+        getRepositoryDependencies: vi.fn(),
+        getRepositorySecurity: vi.fn(),
         getUserContributionDay: vi.fn(),
         getUserContributions: vi.fn(),
         listPublicRepositories: vi.fn(),
@@ -157,8 +169,12 @@ describe("App", () => {
           rejectSeed = reject;
         }),
     );
-    renderApp("/", {
+    renderApp("/new", {
       getPublicProfile: vi.fn(),
+      getRepository: vi.fn(),
+      getRepositoryBom: vi.fn(),
+      getRepositoryDependencies: vi.fn(),
+      getRepositorySecurity: vi.fn(),
       getUserContributionDay: vi.fn(),
       getUserContributions: vi.fn(),
       listPublicRepositories: vi.fn(),

@@ -300,6 +300,10 @@ function renderProfile(client: SeasoningBomApiClient | null, username: string) {
 function createClient(overrides: Partial<SeasoningBomApiClient> = {}): SeasoningBomApiClient {
   return {
     getPublicProfile: vi.fn().mockResolvedValue(profile),
+    getRepository: vi.fn(),
+    getRepositoryBom: vi.fn(),
+    getRepositoryDependencies: vi.fn(),
+    getRepositorySecurity: vi.fn(),
     getUserContributionDay: vi.fn().mockResolvedValue({
       contributionCount: 0,
       date: "2026-07-23",

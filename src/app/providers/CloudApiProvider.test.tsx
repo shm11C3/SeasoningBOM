@@ -34,6 +34,10 @@ function Probe() {
 function createClient(): SeasoningBomApiClient {
   return {
     getPublicProfile: vi.fn(),
+    getRepository: vi.fn(),
+    getRepositoryBom: vi.fn(),
+    getRepositoryDependencies: vi.fn(),
+    getRepositorySecurity: vi.fn(),
     getUserContributionDay: vi.fn(),
     getUserContributions: vi.fn(),
     listPublicRepositories: vi.fn(),

@@ -50,6 +50,7 @@ src/
 
   repositories/
     contracts/
+    cloud-api/
     cloudflare-d1/
     indexeddb/
     memory/

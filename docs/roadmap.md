@@ -145,6 +145,10 @@ Current implementation checkpoint:
 - `VITE_SEASONINGBOM_API_BASE_URL` explicitly selects the browser Cloud API adapter; an unset value preserves the IndexedDB prototype.
 - `/users/:username` loads the public profile, annual Contribution graph, public repositories, and privacy-filtered day details from the Workers API.
 - Cloud profile requests run in parallel, do not seed or subscribe to IndexedDB, and preserve the public profile when its Contribution graph is private.
+- `/` lists public repositories from the Workers API without local-only inventory, audit, Star, or Fork estimates.
+- `/:owner/:repo` loads repository metadata, direct and transitive dependencies, and public Recipe Alerts from the Workers API. Optional dependency or security failures do not hide successfully loaded repository metadata.
+- Cloud repository pages download the server-generated SeasoningBOM from `GET /api/repos/:owner/:repo/bom`; they do not regenerate it from browser or IndexedDB state.
+- Cloud dashboard, repository detail, and profile routes do not seed or subscribe to IndexedDB. Unmigrated edit, inventory, audit, EOL, and backup routes retain the local prototype behavior.
 
 Deliverables:
 
