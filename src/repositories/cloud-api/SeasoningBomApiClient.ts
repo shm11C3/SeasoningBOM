@@ -1,4 +1,10 @@
-import type { RecipeRepositoryEntity } from "../../domain";
+import type {
+  AuditSummary,
+  RecipeAlert,
+  RecipeComponent,
+  RecipeRepositoryEntity,
+  SeasoningBOM,
+} from "../../domain";
 
 export type CloudUserProfile = {
   id: string;
@@ -57,6 +63,20 @@ export type CloudRepository = Omit<RecipeRepositoryEntity, "id"> & {
   sourceRepositoryId?: string;
 };
 
+export type CloudRecipeComponent = Omit<RecipeComponent, "notes" | "recipeId">;
+
+export type CloudRepositoryDependencies = {
+  repository: CloudRepository;
+  components: CloudRecipeComponent[];
+};
+
+export type CloudRepositorySecurity = {
+  generatedAt: string;
+  recipeAlerts: RecipeAlert[];
+  repository: CloudRepository;
+  summary: AuditSummary;
+};
+
 export interface SeasoningBomApiClient {
   getPublicProfile(username: string, signal?: AbortSignal): Promise<CloudUserProfile>;
   getUserContributions(username: string, signal?: AbortSignal): Promise<CloudContributionList>;
@@ -65,6 +85,18 @@ export interface SeasoningBomApiClient {
     date: string,
     signal?: AbortSignal,
   ): Promise<CloudContributionDayDetail>;
+  getRepository(ownerHandle: string, slug: string, signal?: AbortSignal): Promise<CloudRepository>;
+  getRepositoryBom(ownerHandle: string, slug: string, signal?: AbortSignal): Promise<SeasoningBOM>;
+  getRepositoryDependencies(
+    ownerHandle: string,
+    slug: string,
+    signal?: AbortSignal,
+  ): Promise<CloudRepositoryDependencies>;
+  getRepositorySecurity(
+    ownerHandle: string,
+    slug: string,
+    signal?: AbortSignal,
+  ): Promise<CloudRepositorySecurity>;
   listPublicRepositories(signal?: AbortSignal): Promise<CloudRepository[]>;
 }
 
@@ -126,11 +158,34 @@ export function createSeasoningBomApiClient(
         signal,
       );
     },
+    async getRepository(ownerHandle, slug, signal) {
+      const response = await get<{ repository: CloudRepository }>(
+        repositoryPath(ownerHandle, slug),
+        signal,
+      );
+      return response.repository;
+    },
+    getRepositoryBom(ownerHandle, slug, signal) {
+      return get<SeasoningBOM>(`${repositoryPath(ownerHandle, slug)}/bom`, signal);
+    },
+    getRepositoryDependencies(ownerHandle, slug, signal) {
+      return get<CloudRepositoryDependencies>(
+        `${repositoryPath(ownerHandle, slug)}/dependencies`,
+        signal,
+      );
+    },
+    getRepositorySecurity(ownerHandle, slug, signal) {
+      return get<CloudRepositorySecurity>(`${repositoryPath(ownerHandle, slug)}/security`, signal);
+    },
     async listPublicRepositories(signal) {
       const response = await get<{ repositories: CloudRepository[] }>("/repos", signal);
       return response.repositories;
     },
   };
+}
+
+function repositoryPath(ownerHandle: string, slug: string): string {
+  return `/repos/${encodeURIComponent(ownerHandle)}/${encodeURIComponent(slug)}`;
 }
 
 async function readJson(response: Response): Promise<unknown> {

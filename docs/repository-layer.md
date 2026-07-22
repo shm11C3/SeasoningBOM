@@ -210,6 +210,8 @@ The browser enables the Cloud API adapter when `VITE_SEASONINGBOM_API_BASE_URL` 
 
 The profile Cloud client starts profile, contribution, and public repository requests together. A public profile remains visible when its Contribution graph is private, while malformed or unavailable API responses render bounded error states instead of falling back to local data for the same URL identity.
 
+The public repository browser uses the same API client for repository discovery, metadata, dependencies, public Recipe Alerts, and server-generated SeasoningBOM downloads. Repository metadata remains visible when optional dependency or security requests fail. Cloud public views never derive Inventory Audit details from IndexedDB, fabricate engagement counts, or fall back to local records for the same `owner + slug`.
+
 Example shape:
 
 ```ts

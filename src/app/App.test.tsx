@@ -109,36 +109,22 @@ describe("App", () => {
     await waitFor(() => expect(screen.getByText(message)).toBeInTheDocument());
   });
 
-  it("does not seed local repositories for a cloud-backed profile route", async () => {
+  it.each([
+    ["/", "Dashboard route"],
+    ["/test-cook/recipe", "Repository route: test-cook/recipe"],
+    ["/users/test-cook", "Profile route: test-cook"],
+  ])("does not seed local repositories for cloud-backed route %s", async (path, routeText) => {
     const repositories = createMemoryRepositories();
-    renderApp(
-      "/users/test-cook",
-      {
-        getPublicProfile: vi.fn(),
-        getUserContributionDay: vi.fn(),
-        getUserContributions: vi.fn(),
-        listPublicRepositories: vi.fn(),
-      },
-      repositories,
-    );
+    renderApp(path, createCloudClient(), repositories);
 
-    await waitFor(() => expect(screen.getByText("Profile route: test-cook")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(routeText)).toBeInTheDocument());
     await Promise.resolve();
     expect(await repositories.recipes.findAll()).toEqual([]);
   });
 
   it("seeds local repositories for routes that have not migrated to the cloud API", async () => {
     const repositories = createMemoryRepositories();
-    renderApp(
-      "/",
-      {
-        getPublicProfile: vi.fn(),
-        getUserContributionDay: vi.fn(),
-        getUserContributions: vi.fn(),
-        listPublicRepositories: vi.fn(),
-      },
-      repositories,
-    );
+    renderApp("/new", createCloudClient(), repositories);
 
     await waitFor(async () => {
       await expect(repositories.recipes.findAll()).resolves.toHaveLength(2);
@@ -157,12 +143,7 @@ describe("App", () => {
           rejectSeed = reject;
         }),
     );
-    renderApp("/", {
-      getPublicProfile: vi.fn(),
-      getUserContributionDay: vi.fn(),
-      getUserContributions: vi.fn(),
-      listPublicRepositories: vi.fn(),
-    });
+    renderApp("/new", createCloudClient());
 
     await waitFor(() => expect(rejectSeed).toBeTypeOf("function"));
     act(() => navigate("/users/test-cook"));
@@ -176,3 +157,16 @@ describe("App", () => {
     expect(screen.queryByText("stale seed failure")).not.toBeInTheDocument();
   });
 });
+
+function createCloudClient(): SeasoningBomApiClient {
+  return {
+    getPublicProfile: vi.fn(),
+    getRepository: vi.fn(),
+    getRepositoryBom: vi.fn(),
+    getRepositoryDependencies: vi.fn(),
+    getRepositorySecurity: vi.fn(),
+    getUserContributionDay: vi.fn(),
+    getUserContributions: vi.fn(),
+    listPublicRepositories: vi.fn(),
+  };
+}

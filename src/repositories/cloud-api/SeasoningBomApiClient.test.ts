@@ -6,13 +6,19 @@ describe("SeasoningBomApiClient", () => {
     expect(createSeasoningBomApiClient(baseUrl)).toBeNull();
   });
 
-  it("loads profile, contributions, contribution days, and public repositories", async () => {
+  it("loads profiles, contributions, and public repository resources", async () => {
     const fetcher = vi
       .fn<typeof fetch>()
       .mockResolvedValueOnce(jsonResponse({ profile: { id: "profile_1", username: "test user" } }))
       .mockResolvedValueOnce(jsonResponse({ days: [], totalContributions: 0 }))
       .mockResolvedValueOnce(jsonResponse({ date: "2026-07-23", events: [] }))
-      .mockResolvedValueOnce(jsonResponse({ repositories: [{ id: "repo_1" }] }));
+      .mockResolvedValueOnce(jsonResponse({ repositories: [{ id: "repo_1" }] }))
+      .mockResolvedValueOnce(jsonResponse({ repository: { id: "repo_1" } }))
+      .mockResolvedValueOnce(jsonResponse({ components: [], repository: { id: "repo_1" } }))
+      .mockResolvedValueOnce(
+        jsonResponse({ recipeAlerts: [], repository: { id: "repo_1" }, summary: {} }),
+      )
+      .mockResolvedValueOnce(jsonResponse({ bomFormat: "SeasoningBOM" }));
     const client = createSeasoningBomApiClient(" /api/ ", fetcher);
 
     await expect(client?.getPublicProfile("test user")).resolves.toEqual({
@@ -28,6 +34,21 @@ describe("SeasoningBomApiClient", () => {
       events: [],
     });
     await expect(client?.listPublicRepositories()).resolves.toEqual([{ id: "repo_1" }]);
+    await expect(client?.getRepository("test user", "hot / pot")).resolves.toEqual({
+      id: "repo_1",
+    });
+    await expect(client?.getRepositoryDependencies("test user", "hot / pot")).resolves.toEqual({
+      components: [],
+      repository: { id: "repo_1" },
+    });
+    await expect(client?.getRepositorySecurity("test user", "hot / pot")).resolves.toEqual({
+      recipeAlerts: [],
+      repository: { id: "repo_1" },
+      summary: {},
+    });
+    await expect(client?.getRepositoryBom("test user", "hot / pot")).resolves.toEqual({
+      bomFormat: "SeasoningBOM",
+    });
 
     expect(fetcher).toHaveBeenNthCalledWith(
       1,
@@ -40,6 +61,26 @@ describe("SeasoningBomApiClient", () => {
       expect.objectContaining({ headers: { Accept: "application/json" } }),
     );
     expect(fetcher).toHaveBeenNthCalledWith(4, "/api/repos", expect.any(Object));
+    expect(fetcher).toHaveBeenNthCalledWith(
+      5,
+      "/api/repos/test%20user/hot%20%2F%20pot",
+      expect.any(Object),
+    );
+    expect(fetcher).toHaveBeenNthCalledWith(
+      6,
+      "/api/repos/test%20user/hot%20%2F%20pot/dependencies",
+      expect.any(Object),
+    );
+    expect(fetcher).toHaveBeenNthCalledWith(
+      7,
+      "/api/repos/test%20user/hot%20%2F%20pot/security",
+      expect.any(Object),
+    );
+    expect(fetcher).toHaveBeenNthCalledWith(
+      8,
+      "/api/repos/test%20user/hot%20%2F%20pot/bom",
+      expect.any(Object),
+    );
   });
 
   it("preserves structured API errors", async () => {

@@ -1,6 +1,15 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { CloudApiProvider } from "../../app/providers/CloudApiProvider";
+import type { SeasoningBOM } from "../../domain";
+import {
+  CloudApiError,
+  type CloudRecipeComponent,
+  type CloudRepository,
+  type CloudRepositorySecurity,
+  type SeasoningBomApiClient,
+} from "../../repositories/cloud-api/SeasoningBomApiClient";
 import {
   makeComponent,
   makeInventoryItem,
@@ -25,6 +34,7 @@ vi.mock("../useLiveData", () => ({
 describe("RecipeDetailPage", () => {
   beforeEach(() => {
     window.history.pushState({}, "", "/me/curry-rice");
+    downloadJsonMock.mockReset();
   });
 
   it("renders code, dependency, and security views for a repository", async () => {
@@ -134,4 +144,208 @@ describe("RecipeDetailPage", () => {
     expect(screen.getByText("No public recipe alerts")).toBeInTheDocument();
     expect(screen.getByText("No private inventory audit issues")).toBeInTheDocument();
   });
+});
+
+describe("RecipeDetailPage cloud repository", () => {
+  const repository: CloudRepository = {
+    createdAt: "2026-07-23T00:00:00.000Z",
+    description: "A cloud-hosted curry",
+    id: "repo_cloud",
+    name: "Cloud Curry",
+    ownerHandle: "test-cook",
+    readme: "# Cloud Curry\n\n## Build\n\n1. Simmer carefully.",
+    servings: 4,
+    slug: "cloud-curry",
+    tags: ["curry", "public"],
+    updatedAt: "2026-07-23T00:00:00.000Z",
+    version: "1.0.0",
+    visibility: "public",
+  };
+  const components: CloudRecipeComponent[] = [
+    {
+      allergens: ["wheat"],
+      alternatives: ["brown rice"],
+      dependencyType: "required",
+      id: "component_rice",
+      ingredientName: "rice",
+      quantity: 2,
+      required: true,
+      transitiveDependencies: [
+        {
+          allergens: ["soy"],
+          dependencyType: "transitive",
+          id: "dependency_soy",
+          name: "soy sauce",
+        },
+      ],
+      unit: "go",
+    },
+  ];
+  const security: CloudRepositorySecurity = {
+    generatedAt: "2026-07-23T00:00:00.000Z",
+    recipeAlerts: [
+      {
+        category: "allergen",
+        componentName: "rice",
+        id: "alert_wheat",
+        message: "rice declares wheat",
+        recommendation: "Check the label before cooking.",
+        severity: "high",
+      },
+    ],
+    repository,
+    summary: { critical: 0, high: 1, low: 0, medium: 0, totalIssues: 1 },
+  };
+  const bom: SeasoningBOM = {
+    audit: { issues: security.recipeAlerts },
+    bomFormat: "SeasoningBOM",
+    components: [],
+    generatedAt: "2026-07-23T00:00:00.000Z",
+    repository: {
+      name: repository.slug,
+      owner: repository.ownerHandle,
+      version: repository.version,
+      visibility: repository.visibility,
+    },
+    specVersion: "0.1.0",
+  };
+
+  beforeEach(() => {
+    window.history.pushState({}, "", "/test-cook/cloud-curry");
+    downloadJsonMock.mockReset();
+  });
+
+  it("renders API-backed code, dependencies, public alerts, and BOM download", async () => {
+    const user = userEvent.setup();
+    const client = createCloudClient();
+    renderCloudDetail(client);
+
+    expect(screen.getByText("Loading repository")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Cloud Curry" })).toBeInTheDocument();
+    expect(screen.getByText("rice@2go")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Edit" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Delete" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("tab", { name: "Dependencies" }));
+    expect(screen.getByText("Allergens: wheat")).toBeInTheDocument();
+    expect(screen.getByText("Alternatives: brown rice")).toBeInTheDocument();
+    expect(screen.getByText(/soy sauce/)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("tab", { name: "Security" }));
+    expect(screen.getByText("Public Recipe Alerts: 1.")).toBeInTheDocument();
+    expect(screen.getByText("rice declares wheat")).toBeInTheDocument();
+    expect(screen.queryByText("Your inventory audit")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Download SBOM" }));
+    await waitFor(() =>
+      expect(downloadJsonMock).toHaveBeenCalledWith("cloud-curry-seasoningbom.json", bom),
+    );
+    expect(screen.getByText("SeasoningBOM JSON downloaded.")).toBeInTheDocument();
+  });
+
+  it("keeps repository metadata visible when optional resources fail", async () => {
+    const user = userEvent.setup();
+    renderCloudDetail(
+      createCloudClient({
+        getRepository: vi.fn().mockResolvedValue({
+          ...repository,
+          description: undefined,
+          readme: undefined,
+          sourceRepositoryId: "repo_source",
+        }),
+        getRepositoryBom: vi.fn().mockRejectedValue(new Error("offline")),
+        getRepositoryDependencies: vi.fn().mockRejectedValue(new Error("offline")),
+        getRepositorySecurity: vi.fn().mockRejectedValue(new Error("offline")),
+      }),
+    );
+
+    expect(await screen.findByText("No description provided.")).toBeInTheDocument();
+    expect(screen.getByText("Forked from repository repo_source.")).toBeInTheDocument();
+    expect(screen.getByText("No README committed yet.")).toBeInTheDocument();
+    expect(screen.getByText("Dependencies could not be loaded.")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("tab", { name: "Dependencies" }));
+    expect(
+      screen.getByText("The dependency graph could not be loaded. Please try again."),
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole("tab", { name: "Security" }));
+    expect(screen.getByText("Security alerts unavailable")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Download SBOM" }));
+    expect(await screen.findByText("SeasoningBOM download failed. Please try again.")).toHaveClass(
+      "flash-danger",
+    );
+  });
+
+  it("renders empty public dependency and alert states", async () => {
+    const user = userEvent.setup();
+    renderCloudDetail(
+      createCloudClient({
+        getRepositoryDependencies: vi.fn().mockResolvedValue({ components: [], repository }),
+        getRepositorySecurity: vi.fn().mockResolvedValue({
+          ...security,
+          recipeAlerts: [],
+          summary: { critical: 0, high: 0, low: 0, medium: 0, totalIssues: 0 },
+        }),
+      }),
+    );
+
+    expect(await screen.findByText("No dependencies declared.")).toBeInTheDocument();
+    await user.click(screen.getByRole("tab", { name: "Dependencies" }));
+    expect(screen.getByText("No dependencies")).toBeInTheDocument();
+    await user.click(screen.getByRole("tab", { name: "Security" }));
+    expect(screen.getByText("No public recipe alerts")).toBeInTheDocument();
+  });
+
+  it.each([
+    [new CloudApiError(404, "Repository not found."), "Repository not found"],
+    [new Error("offline"), "Repository unavailable"],
+  ])("renders repository load failures", async (error, expected) => {
+    renderCloudDetail(createCloudClient({ getRepository: vi.fn().mockRejectedValue(error) }));
+    expect(await screen.findByText(expected)).toBeInTheDocument();
+  });
+
+  it("aborts all repository requests when the route unmounts", async () => {
+    const signals: AbortSignal[] = [];
+    const pending = (_owner: string, _slug: string, signal?: AbortSignal) => {
+      if (signal) {
+        signals.push(signal);
+      }
+      return new Promise<never>(() => undefined);
+    };
+    const { unmount } = renderCloudDetail(
+      createCloudClient({
+        getRepository: vi.fn(pending),
+        getRepositoryDependencies: vi.fn(pending),
+        getRepositorySecurity: vi.fn(pending),
+      }),
+    );
+
+    await waitFor(() => expect(signals).toHaveLength(3));
+    unmount();
+    expect(signals.every((signal) => signal.aborted)).toBe(true);
+  });
+
+  function renderCloudDetail(client: SeasoningBomApiClient) {
+    return render(
+      <CloudApiProvider client={client}>
+        <RecipeDetailPage ownerHandle="test-cook" slug="cloud-curry" />
+      </CloudApiProvider>,
+    );
+  }
+
+  function createCloudClient(
+    overrides: Partial<SeasoningBomApiClient> = {},
+  ): SeasoningBomApiClient {
+    return {
+      getPublicProfile: vi.fn(),
+      getRepository: vi.fn().mockResolvedValue(repository),
+      getRepositoryBom: vi.fn().mockResolvedValue(bom),
+      getRepositoryDependencies: vi.fn().mockResolvedValue({ components, repository }),
+      getRepositorySecurity: vi.fn().mockResolvedValue(security),
+      getUserContributionDay: vi.fn(),
+      getUserContributions: vi.fn(),
+      listPublicRepositories: vi.fn(),
+      ...overrides,
+    };
+  }
 });

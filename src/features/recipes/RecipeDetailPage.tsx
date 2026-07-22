@@ -1,6 +1,7 @@
 import { Button, Label } from "@primer/react";
 import type { ReactNode } from "react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useCloudApi } from "../../app/providers/CloudApiProvider";
 import { navigate } from "../../app/routes";
 import {
   type AuditIssue,
@@ -10,6 +11,13 @@ import {
   runNomAudit,
   summarizeIssues,
 } from "../../domain";
+import {
+  CloudApiError,
+  type CloudRecipeComponent,
+  type CloudRepository,
+  type CloudRepositorySecurity,
+  type SeasoningBomApiClient,
+} from "../../repositories/cloud-api/SeasoningBomApiClient";
 import { EmptyState } from "../../ui/components/EmptyState";
 import { DependencyLabel, LifecycleLabel, SeverityLabel } from "../../ui/components/Labels";
 import { AppLink } from "../../ui/components/Link";
@@ -30,7 +38,27 @@ import { useLiveData } from "../useLiveData";
 
 type Tab = "code" | "dependencies" | "security";
 
+type CloudRepositoryState =
+  | { status: "loading" }
+  | { status: "not-found" }
+  | { status: "error" }
+  | {
+      status: "ready";
+      repository: CloudRepository;
+      components: CloudRecipeComponent[] | null;
+      security: CloudRepositorySecurity | null;
+    };
+
 export function RecipeDetailPage({ ownerHandle, slug }: { ownerHandle: string; slug: string }) {
+  const cloudApi = useCloudApi();
+  return cloudApi ? (
+    <CloudRecipeDetailPage api={cloudApi} ownerHandle={ownerHandle} slug={slug} />
+  ) : (
+    <LocalRecipeDetailPage ownerHandle={ownerHandle} slug={slug} />
+  );
+}
+
+function LocalRecipeDetailPage({ ownerHandle, slug }: { ownerHandle: string; slug: string }) {
   const { repositories, recipes, components, inventoryItems, settings } = useLiveData();
   const [tab, setTab] = useState<Tab>("code");
   const [message, setMessage] = useState<string | null>(null);
@@ -181,6 +209,265 @@ export function RecipeDetailPage({ ownerHandle, slug }: { ownerHandle: string; s
         {tab === "security" && audit ? <SecurityTab audit={audit} /> : null}
       </section>
     </>
+  );
+}
+
+function CloudRecipeDetailPage({
+  api,
+  ownerHandle,
+  slug,
+}: {
+  api: SeasoningBomApiClient;
+  ownerHandle: string;
+  slug: string;
+}) {
+  const [tab, setTab] = useState<Tab>("code");
+  const [state, setState] = useState<CloudRepositoryState>({ status: "loading" });
+  const [message, setMessage] = useState<{ danger: boolean; text: string } | null>(null);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setState({ status: "loading" });
+    setMessage(null);
+
+    Promise.allSettled([
+      api.getRepository(ownerHandle, slug, controller.signal),
+      api.getRepositoryDependencies(ownerHandle, slug, controller.signal),
+      api.getRepositorySecurity(ownerHandle, slug, controller.signal),
+    ]).then(([repositoryResult, dependenciesResult, securityResult]) => {
+      if (controller.signal.aborted) {
+        return;
+      }
+      if (repositoryResult.status === "rejected") {
+        setState({
+          status:
+            repositoryResult.reason instanceof CloudApiError &&
+            repositoryResult.reason.status === 404
+              ? "not-found"
+              : "error",
+        });
+        return;
+      }
+
+      setState({
+        status: "ready",
+        repository: repositoryResult.value,
+        components:
+          dependenciesResult.status === "fulfilled" ? dependenciesResult.value.components : null,
+        security: securityResult.status === "fulfilled" ? securityResult.value : null,
+      });
+    });
+
+    return () => controller.abort();
+  }, [api, ownerHandle, slug]);
+
+  if (state.status === "loading") {
+    return <EmptyState title="Loading repository">Fetching recipe content...</EmptyState>;
+  }
+  if (state.status === "not-found") {
+    return <EmptyState title="Repository not found">{slug}</EmptyState>;
+  }
+  if (state.status === "error") {
+    return (
+      <EmptyState title="Repository unavailable">
+        The repository could not be loaded. Please try again.
+      </EmptyState>
+    );
+  }
+
+  const { components, repository, security } = state;
+
+  async function handleDownloadBom() {
+    setMessage(null);
+    try {
+      const bom = await api.getRepositoryBom(ownerHandle, slug);
+      downloadJson(`${repository.slug}-seasoningbom.json`, bom);
+      setMessage({ danger: false, text: "SeasoningBOM JSON downloaded." });
+    } catch {
+      setMessage({ danger: true, text: "SeasoningBOM download failed. Please try again." });
+    }
+  }
+
+  return (
+    <>
+      {message ? (
+        <div className={message.danger ? "flash flash-danger" : "flash"}>{message.text}</div>
+      ) : null}
+      <div className="repo-header">
+        <div className="repo-header-main">
+          <div>
+            <div className="repo-path">
+              <RepoIcon />
+              <AppLink to={`/users/${repository.ownerHandle}`}>{repository.ownerHandle}</AppLink>
+              <span>/</span>
+              <span>{repository.slug}</span>
+            </div>
+            <p className="muted">{repository.description ?? "No description provided."}</p>
+            <div className="label-row">
+              <Label>{repository.visibility}</Label>
+              <Label variant="accent">v{repository.version}</Label>
+              {repository.tags.map((tag) => (
+                <Label key={tag}>{tag}</Label>
+              ))}
+            </div>
+            {repository.sourceRepositoryId ? (
+              <p className="muted">Forked from repository {repository.sourceRepositoryId}.</p>
+            ) : null}
+          </div>
+          <div>
+            <div className="meta-line muted">
+              <span>{repository.servings} servings</span>
+              <span>
+                {components === null
+                  ? "Dependencies unavailable"
+                  : `${components.length} dependencies`}
+              </span>
+              <span>
+                {security === null
+                  ? "Security unavailable"
+                  : `${security.summary.totalIssues} public alerts`}
+              </span>
+            </div>
+            <div className="action-row">
+              <Button type="button" onClick={handleDownloadBom}>
+                <DownloadIcon /> Download SBOM
+              </Button>
+            </div>
+          </div>
+        </div>
+        <div className="tabs" role="tablist" aria-label="Repository sections">
+          <TabButton active={tab === "code"} onClick={() => setTab("code")} icon={<CodeIcon />}>
+            Code
+          </TabButton>
+          <TabButton
+            active={tab === "dependencies"}
+            onClick={() => setTab("dependencies")}
+            icon={<PackageIcon />}
+          >
+            Dependencies
+          </TabButton>
+          <TabButton
+            active={tab === "security"}
+            onClick={() => setTab("security")}
+            icon={<ShieldIcon />}
+          >
+            Security
+          </TabButton>
+        </div>
+      </div>
+
+      <section className="section">
+        {tab === "code" ? (
+          <CloudCodeTab
+            readme={repository.readme}
+            components={components}
+            onAudit={() => setTab("security")}
+          />
+        ) : null}
+        {tab === "dependencies" ? <CloudDependenciesTab components={components} /> : null}
+        {tab === "security" ? <CloudSecurityTab security={security} /> : null}
+      </section>
+    </>
+  );
+}
+
+function CloudCodeTab({
+  readme,
+  components,
+  onAudit,
+}: {
+  readme?: string;
+  components: CloudRecipeComponent[] | null;
+  onAudit: () => void;
+}) {
+  return (
+    <div className="surface readme">
+      {renderReadme(readme)}
+      <h2>Declared dependencies</h2>
+      {components === null ? (
+        <p className="muted">Dependencies could not be loaded.</p>
+      ) : components.length === 0 ? (
+        <p className="muted">No dependencies declared.</p>
+      ) : (
+        <ul>
+          {components.map((component) => (
+            <li key={component.id}>
+              {component.ingredientName}@{formatQuantity(component.quantity, component.unit)}
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="action-row">
+        <Button type="button" onClick={onAudit}>
+          <AlertIcon /> nom audit
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function CloudDependenciesTab({ components }: { components: CloudRecipeComponent[] | null }) {
+  if (components === null) {
+    return (
+      <EmptyState title="Dependencies unavailable">
+        The dependency graph could not be loaded. Please try again.
+      </EmptyState>
+    );
+  }
+
+  return (
+    <div className="surface dependency-tree">
+      {components.length === 0 ? <EmptyState title="No dependencies" /> : null}
+      {components.map((component) => (
+        <div className="dependency-item" key={component.id}>
+          <div className="section-header">
+            <div className="repo-title">
+              <PackageIcon />
+              {component.ingredientName}@{formatQuantity(component.quantity, component.unit)}
+            </div>
+            <DependencyLabel value={component.dependencyType} />
+          </div>
+          {component.allergens.length > 0 ? (
+            <p className="muted">Allergens: {component.allergens.join(", ")}</p>
+          ) : null}
+          {component.alternatives.length > 0 ? (
+            <p className="muted">Alternatives: {component.alternatives.join(", ")}</p>
+          ) : null}
+          {component.transitiveDependencies.length > 0 ? (
+            <div className="dependency-children">
+              {component.transitiveDependencies.map((dependency) => (
+                <p key={dependency.id ?? `${component.id}-${dependency.name}`}>
+                  <ChecklistIcon /> {dependency.name}{" "}
+                  <DependencyLabel value={dependency.dependencyType} />
+                  {dependency.allergens.length > 0
+                    ? ` allergens: ${dependency.allergens.join(", ")}`
+                    : ""}
+                </p>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function CloudSecurityTab({ security }: { security: CloudRepositorySecurity | null }) {
+  if (security === null) {
+    return (
+      <EmptyState title="Security alerts unavailable">
+        Public Recipe Alerts could not be loaded. Please try again.
+      </EmptyState>
+    );
+  }
+
+  const groups = groupIssuesBySeverity(security.recipeAlerts);
+  return (
+    <div className="surface readme">
+      <h2>Security alerts</h2>
+      <p className="muted">Public Recipe Alerts: {security.summary.totalIssues}.</p>
+      <IssueGroups groups={groups} title="Recipe alerts" emptyTitle="No public recipe alerts" />
+    </div>
   );
 }
 
