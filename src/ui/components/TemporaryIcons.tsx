@@ -8,6 +8,7 @@ type IconShape =
   | "checklist"
   | "code"
   | "download"
+  | "fork"
   | "mark"
   | "package"
   | "pencil"
@@ -40,6 +41,10 @@ export function CodeIcon(props: TemporaryIconProps) {
 
 export function DownloadIcon(props: TemporaryIconProps) {
   return <TemporaryIcon shape="download" {...props} />;
+}
+
+export function ForkIcon(props: TemporaryIconProps) {
+  return <TemporaryIcon shape="fork" {...props} />;
 }
 
 export function PackageIcon(props: TemporaryIconProps) {
@@ -129,6 +134,16 @@ function renderShape(shape: IconShape) {
           <path d="M12 4v11" />
           <path d="m7 10 5 5 5-5" />
           <path d="M5 20h14" />
+        </>
+      );
+    case "fork":
+      return (
+        <>
+          <circle cx="7" cy="5" r="2" />
+          <circle cx="17" cy="5" r="2" />
+          <circle cx="12" cy="19" r="2" />
+          <path d="M7 7v2c0 3 2 5 5 5s5-2 5-5V7" />
+          <path d="M12 14v3" />
         </>
       );
     case "mark":

@@ -28,10 +28,12 @@ import {
   ChecklistIcon,
   CodeIcon,
   DownloadIcon,
+  ForkIcon,
   PackageIcon,
   PencilIcon,
   RepoIcon,
   ShieldIcon,
+  StarIcon,
   TrashIcon,
 } from "../../ui/components/TemporaryIcons";
 import { downloadJson } from "../download";
@@ -56,6 +58,12 @@ type CloudInventoryAuditState =
   | { status: "loading" }
   | { status: "error" }
   | { inventoryAudit: InventoryAuditResult; status: "ready" };
+
+type CloudStarState =
+  | { status: "hidden" }
+  | { status: "loading" }
+  | { status: "error" }
+  | { starred: boolean; status: "ready" };
 
 export function RecipeDetailPage({ ownerHandle, slug }: { ownerHandle: string; slug: string }) {
   const cloudApi = useCloudApi();
@@ -235,6 +243,9 @@ function CloudRecipeDetailPage({
   const [inventoryAuditState, setInventoryAuditState] = useState<CloudInventoryAuditState>({
     status: "hidden",
   });
+  const [starState, setStarState] = useState<CloudStarState>({ status: "hidden" });
+  const [starSaving, setStarSaving] = useState(false);
+  const [forking, setForking] = useState(false);
   const [message, setMessage] = useState<{ danger: boolean; text: string } | null>(null);
 
   useEffect(() => {
@@ -272,6 +283,29 @@ function CloudRecipeDetailPage({
 
     return () => controller.abort();
   }, [api, ownerHandle, slug]);
+
+  useEffect(() => {
+    if (cloudProfile.status !== "ready") {
+      setStarState({ status: "hidden" });
+      return;
+    }
+
+    const controller = new AbortController();
+    setStarState({ status: "loading" });
+    api.getRepositoryStar(ownerHandle, slug, controller.signal).then(
+      ({ starred }) => {
+        if (!controller.signal.aborted) {
+          setStarState({ starred, status: "ready" });
+        }
+      },
+      () => {
+        if (!controller.signal.aborted) {
+          setStarState({ status: "error" });
+        }
+      },
+    );
+    return () => controller.abort();
+  }, [api, cloudProfile.status, ownerHandle, slug]);
 
   useEffect(() => {
     if (cloudProfile.status !== "ready") {
@@ -340,13 +374,58 @@ function CloudRecipeDetailPage({
     }
   }
 
+  async function handleStar() {
+    const starred = starState.status === "ready" && starState.starred;
+    setStarSaving(true);
+    setMessage(null);
+    try {
+      if (starred) {
+        await api.unstarRepository(repository.ownerHandle, repository.slug);
+        setStarState({ starred: false, status: "ready" });
+        setMessage({ danger: false, text: "Star removed." });
+      } else {
+        const nextState = await api.starRepository(repository.ownerHandle, repository.slug);
+        setStarState({ starred: nextState.starred, status: "ready" });
+        setMessage({ danger: false, text: "Repository starred." });
+      }
+    } catch {
+      setMessage({ danger: true, text: "Star update failed. Please try again." });
+    } finally {
+      setStarSaving(false);
+    }
+  }
+
+  async function handleFork() {
+    setForking(true);
+    setMessage(null);
+    try {
+      const fork = await api.forkRepository(repository.ownerHandle, repository.slug);
+      navigate(`/${fork.ownerHandle}/${fork.slug}`);
+    } catch (error) {
+      setMessage({
+        danger: true,
+        text:
+          error instanceof CloudApiError
+            ? error.message
+            : "Repository fork failed. Please try again.",
+      });
+    } finally {
+      setForking(false);
+    }
+  }
+
   const isOwner =
     cloudProfile.status === "ready" && cloudProfile.profile?.username === repository.ownerHandle;
 
   return (
     <>
       {message ? (
-        <div className={message.danger ? "flash flash-danger" : "flash"}>{message.text}</div>
+        <div
+          className={message.danger ? "flash flash-danger" : "flash"}
+          role={message.danger ? "alert" : "status"}
+        >
+          {message.text}
+        </div>
       ) : null}
       <div className="repo-header">
         <div className="repo-header-main">
@@ -384,6 +463,28 @@ function CloudRecipeDetailPage({
               </span>
             </div>
             <div className="action-row">
+              {cloudProfile.status === "ready" ? (
+                <Button
+                  type="button"
+                  disabled={starSaving || starState.status === "loading"}
+                  variant={
+                    starState.status === "ready" && starState.starred ? "primary" : undefined
+                  }
+                  onClick={handleStar}
+                >
+                  <StarIcon />
+                  {starSaving
+                    ? "Saving..."
+                    : starState.status === "ready" && starState.starred
+                      ? "Unstar"
+                      : "Star"}
+                </Button>
+              ) : null}
+              {cloudProfile.status === "ready" && !isOwner ? (
+                <Button type="button" disabled={forking} onClick={handleFork}>
+                  <ForkIcon /> {forking ? "Forking..." : "Fork"}
+                </Button>
+              ) : null}
               {isOwner ? (
                 <Button
                   type="button"

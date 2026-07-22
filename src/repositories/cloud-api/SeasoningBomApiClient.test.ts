@@ -163,6 +163,15 @@ describe("SeasoningBomApiClient", () => {
           inventoryAudit: { issues: [], summary: { totalIssues: 0 } },
           repository,
         }),
+      )
+      .mockResolvedValueOnce(jsonResponse({ repository, starred: false }))
+      .mockResolvedValueOnce(jsonResponse({ repository, starred: true }, { status: 201 }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+      .mockResolvedValueOnce(
+        jsonResponse(
+          { repository: { ...repository, ownerHandle: "test-user", sourceRepositoryId: "repo_1" } },
+          { status: 201 },
+        ),
       );
     const getSessionToken = vi.fn().mockResolvedValue("  session-token  ");
     const client = createSeasoningBomApiClient("/api", fetcher, getSessionToken);
@@ -184,6 +193,17 @@ describe("SeasoningBomApiClient", () => {
     await expect(client?.deleteInventoryItem("inventory / 1")).resolves.toBeUndefined();
     await expect(client?.runRepositoryAudit("test-user", "curry")).resolves.toMatchObject({
       inventoryAudit: { issues: [] },
+    });
+    await expect(client?.getRepositoryStar("source-user", "curry")).resolves.toMatchObject({
+      starred: false,
+    });
+    await expect(client?.starRepository("source-user", "curry")).resolves.toMatchObject({
+      starred: true,
+    });
+    await expect(client?.unstarRepository("source-user", "curry")).resolves.toBeUndefined();
+    await expect(client?.forkRepository("source-user", "curry")).resolves.toMatchObject({
+      ownerHandle: "test-user",
+      sourceRepositoryId: "repo_1",
     });
 
     expect(fetcher).toHaveBeenNthCalledWith(
@@ -239,6 +259,26 @@ describe("SeasoningBomApiClient", () => {
       10,
       "/api/repos/test-user/curry/audit",
       expect.objectContaining({ body: undefined, method: "POST" }),
+    );
+    expect(fetcher).toHaveBeenNthCalledWith(
+      11,
+      "/api/repos/source-user/curry/star",
+      expect.objectContaining({ headers: expect.objectContaining({ Accept: "application/json" }) }),
+    );
+    expect(fetcher).toHaveBeenNthCalledWith(
+      12,
+      "/api/repos/source-user/curry/star",
+      expect.objectContaining({ method: "POST" }),
+    );
+    expect(fetcher).toHaveBeenNthCalledWith(
+      13,
+      "/api/repos/source-user/curry/star",
+      expect.objectContaining({ method: "DELETE" }),
+    );
+    expect(fetcher).toHaveBeenNthCalledWith(
+      14,
+      "/api/repos/source-user/curry/fork",
+      expect.objectContaining({ method: "POST" }),
     );
   });
 

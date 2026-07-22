@@ -1495,6 +1495,20 @@ describe("Worker API router", () => {
   it("stars and unstars repositories through the concrete Hono route", async () => {
     const repositoryStars = createRepositoryStarRepository();
     const recipeRepositories = createRecipeRepository([publicRecipeRepository]);
+    const initialResponse = await handleApiRequest(
+      new Request("https://example.test/api/repos/test-user/public-curry/star", {
+        headers: {
+          cookie: "__session=fake-session",
+        },
+      }),
+      configuredEnv,
+      {
+        ...validSessionAuth,
+        recipeRepositories,
+        repositoryStars,
+        userProfiles: createUserProfileRepository([userProfile]),
+      },
+    );
     const starResponse = await handleApiRequest(
       new Request("https://example.test/api/repos/test-user/public-curry/star", {
         headers: {
@@ -1526,6 +1540,7 @@ describe("Worker API router", () => {
       },
     );
 
+    await expect(parseJson(initialResponse)).resolves.toMatchObject({ starred: false });
     await expect(parseJson(starResponse)).resolves.toEqual({
       repository: expect.objectContaining({
         id: "repo_public",
@@ -1630,6 +1645,7 @@ describe("Worker API router", () => {
         ...validSessionAuth,
         createRepositoryId: () => "repo_fork",
         now: () => new Date("2026-07-06T02:03:04.000Z"),
+        recipeComponents: createRecipeComponentRepository([]),
         recipeRepositories,
         userProfiles: createUserProfileRepository([userProfile]),
       },
@@ -1648,7 +1664,9 @@ describe("Worker API router", () => {
 
   it("rejects unsupported star and fork methods with Allow headers", async () => {
     const starResponse = await handleApiRequest(
-      new Request("https://example.test/api/repos/test-user/public-curry/star"),
+      new Request("https://example.test/api/repos/test-user/public-curry/star", {
+        method: "PUT",
+      }),
       env,
     );
     const forkResponse = await handleApiRequest(
@@ -1669,7 +1687,7 @@ describe("Worker API router", () => {
       },
     });
     expect(starResponse.status).toBe(405);
-    expect(starResponse.headers.get("allow")).toBe("POST, DELETE");
+    expect(starResponse.headers.get("allow")).toBe("GET, POST, DELETE");
     expect(forkResponse.status).toBe(405);
     expect(forkResponse.headers.get("allow")).toBe("POST");
   });
@@ -1689,7 +1707,7 @@ describe("Worker API router", () => {
     );
 
     expect(starResponse.status).toBe(405);
-    expect(starResponse.headers.get("allow")).toBe("POST, DELETE");
+    expect(starResponse.headers.get("allow")).toBe("GET, POST, DELETE");
     await expect(starResponse.text()).resolves.toBe("");
     expect(forkResponse.status).toBe(405);
     expect(forkResponse.headers.get("allow")).toBe("POST");
