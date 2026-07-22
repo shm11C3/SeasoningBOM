@@ -19,20 +19,38 @@ import {
   RepoIcon,
   ShieldIcon,
 } from "../ui/components/TemporaryIcons";
+import { useCloudApi } from "./providers/CloudApiProvider";
 import { useRepositories } from "./providers/RepositoryProvider";
 import { useRoute } from "./routes";
 import "./layout/styles.css";
 
 export function App() {
   const route = useRoute();
+  const cloudApi = useCloudApi();
   const repositories = useRepositories();
   const [seedError, setSeedError] = useState<string | null>(null);
+  const routeUsesCloudData = cloudApi !== null && route.name === "profile";
 
   useEffect(() => {
+    let active = true;
+
+    if (routeUsesCloudData) {
+      setSeedError(null);
+      return () => {
+        active = false;
+      };
+    }
+
     ensureSeedData(repositories).catch((error: unknown) => {
-      setSeedError(error instanceof Error ? error.message : "Seed data failed to initialize.");
+      if (active) {
+        setSeedError(error instanceof Error ? error.message : "Seed data failed to initialize.");
+      }
     });
-  }, [repositories]);
+
+    return () => {
+      active = false;
+    };
+  }, [repositories, routeUsesCloudData]);
 
   return (
     <ThemeProvider colorMode="auto">

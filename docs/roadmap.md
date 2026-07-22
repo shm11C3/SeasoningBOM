@@ -85,7 +85,7 @@ Exit criteria:
 
 Goal: hosted recipe sharing service の backend を作る。
 
-Status: current phase
+Status: completed
 
 Deliverables:
 
@@ -137,6 +137,14 @@ Exit criteria:
 ## Phase 5: Frontend Cloud Migration
 
 Goal: 既存 React UI を Cloud D1 API に接続し、GitHub 風共有体験へ移行する。
+
+Status: current phase
+
+Current implementation checkpoint:
+
+- `VITE_SEASONINGBOM_API_BASE_URL` explicitly selects the browser Cloud API adapter; an unset value preserves the IndexedDB prototype.
+- `/users/:username` loads the public profile, annual Contribution graph, public repositories, and privacy-filtered day details from the Workers API.
+- Cloud profile requests run in parallel, do not seed or subscribe to IndexedDB, and preserve the public profile when its Contribution graph is private.
 
 Deliverables:
 
