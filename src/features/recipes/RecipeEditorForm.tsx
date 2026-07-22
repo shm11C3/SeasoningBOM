@@ -171,7 +171,11 @@ export function RecipeEditorForm({
         </div>
       </div>
 
-      {error ? <div className="flash flash-danger">{error}</div> : null}
+      {error ? (
+        <div className="flash flash-danger" role="alert">
+          {error}
+        </div>
+      ) : null}
 
       <section className="surface readme">
         <div className="form-grid">

@@ -24,6 +24,28 @@ const component: RecipeComponent = {
 };
 
 describe("D1RecipeRepository dependency manifests", () => {
+  it("creates repository metadata and dependencies in one batch", async () => {
+    const database = createCapturingDatabase();
+    const repository = new D1RecipeRepository(database.db);
+
+    await repository.create({
+      components: [component],
+      id: "repo_1",
+      name: "Curry",
+      now: "2026-07-23T00:00:00.000Z",
+      ownerHandle: "test-cook",
+      ownerUserId: "profile_1",
+      slug: "curry",
+    });
+
+    expect(database.batches).toHaveLength(1);
+    expect(database.batches[0]?.map((statement) => statement.query)).toEqual([
+      expect.stringContaining("INSERT INTO recipe_repositories"),
+      expect.stringContaining("INSERT INTO recipe_components"),
+      expect.stringContaining("INSERT INTO ingredient_dependencies"),
+    ]);
+  });
+
   it("creates repository metadata, contribution, and dependencies in one batch", async () => {
     const database = createCapturingDatabase();
     const repository = new D1RecipeRepository(database.db);
@@ -43,6 +65,34 @@ describe("D1RecipeRepository dependency manifests", () => {
     expect(database.batches[0]?.map((statement) => statement.query)).toEqual([
       expect.stringContaining("INSERT INTO recipe_repositories"),
       expect.stringContaining("INSERT INTO contribution_events"),
+      expect.stringContaining("INSERT INTO recipe_components"),
+      expect.stringContaining("INSERT INTO ingredient_dependencies"),
+    ]);
+  });
+
+  it("updates repository metadata and dependency replacement in one batch", async () => {
+    const database = createCapturingDatabase();
+    const repository = new D1RecipeRepository(database.db);
+
+    await repository.update({
+      components: [component],
+      createdAt: "2026-07-22T00:00:00.000Z",
+      id: "repo_1",
+      name: "Curry",
+      now: "2026-07-23T00:00:00.000Z",
+      ownerHandle: "test-cook",
+      ownerUserId: "profile_1",
+      servings: 4,
+      slug: "curry",
+      version: "0.2.0",
+      visibility: "public",
+    });
+
+    expect(database.batches).toHaveLength(1);
+    expect(database.batches[0]?.map((statement) => statement.query)).toEqual([
+      expect.stringContaining("UPDATE recipe_repositories"),
+      expect.stringContaining("DELETE FROM ingredient_dependencies"),
+      expect.stringContaining("DELETE FROM recipe_components"),
       expect.stringContaining("INSERT INTO recipe_components"),
       expect.stringContaining("INSERT INTO ingredient_dependencies"),
     ]);

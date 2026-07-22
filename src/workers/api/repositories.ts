@@ -1120,7 +1120,7 @@ export async function handlePatchRepository(
   try {
     const updateInput = {
       ...input.value,
-      components: manifest?.value.components,
+      ...(manifest?.ok && componentsChanged ? { components: manifest.value.components } : {}),
       id: currentResult.repository.id,
       ownerHandle: currentResult.repository.ownerHandle,
       ownerUserId: currentResult.repository.ownerUserId,

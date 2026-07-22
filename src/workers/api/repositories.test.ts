@@ -1994,7 +1994,8 @@ describe("repository API handlers", () => {
   });
 
   it("does not record a contribution for an unchanged dependency manifest", async () => {
-    const recipeRepositories = createRecipeRepository([privateRepository]);
+    const baseRepository = createRecipeRepository([privateRepository]);
+    let updateInput: Parameters<RecipeRepositoryMetadataRepository["update"]>[0] | null = null;
     const storedComponent = {
       ...recipeComponent,
       transitiveDependencies: recipeComponent.transitiveDependencies.map((dependency) => ({
@@ -2013,12 +2014,19 @@ describe("repository API handlers", () => {
       env,
       {
         recipeComponents: createRecipeComponentRepository([storedComponent]),
-        recipeRepositories,
+        recipeRepositories: {
+          ...baseRepository,
+          async update(input) {
+            updateInput = input;
+            return baseRepository.update(input);
+          },
+        },
       },
     );
 
     expect(response.status).toBe(200);
-    expect(recipeRepositories.listContributionEvents()).toEqual([]);
+    expect(updateInput).not.toHaveProperty("components");
+    expect(baseRepository.listContributionEvents()).toEqual([]);
   });
 
   it("does not record a contribution for visibility-only repository updates", async () => {

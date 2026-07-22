@@ -14,7 +14,7 @@ The Cloud editor saves repository metadata and the complete component/transitive
 
 The D1 repository writes metadata, the applicable Contribution event, components, and transitive dependencies in one `DB.batch()` call. A component-only change records `recipe_updated`; a manifest identical to the stored manifest remains a no-op for Contribution purposes.
 
-The existing dependency replacement and granular endpoints remain available for future focused editing interfaces. Protected writes continue to require an Authorization bearer token.
+The existing dependency replacement and granular endpoints remain available for future-focused editing interfaces. Protected writes continue to require an Authorization bearer token.
 
 ## Consequences
 

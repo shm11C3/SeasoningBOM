@@ -59,7 +59,11 @@ export function ProfileBootstrapPanel() {
           {saving ? "Saving..." : "Reserve handle"}
         </Button>
       </form>
-      {error ? <div className="flash flash-danger">{error}</div> : null}
+      {error ? (
+        <div className="flash flash-danger" role="alert">
+          {error}
+        </div>
+      ) : null}
     </section>
   );
 }
