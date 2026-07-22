@@ -206,6 +206,10 @@ class SeasoningBomDb extends Dexie {
 
 Production Cloud D1 MVP では API client / loader hooks から Workers API を呼びます。Local prototype では `dexie-react-hooks` の `useLiveQuery` を使い、DB 更新を UI に反映します。
 
+The browser enables the Cloud API adapter when `VITE_SEASONINGBOM_API_BASE_URL` is set (for a same-origin deployment, use `/api`). When the variable is absent, the app keeps using the IndexedDB prototype adapter. Cloud and local feature components choose their data source before subscribing, so a Cloud page does not also issue IndexedDB reads.
+
+The profile Cloud client starts profile, contribution, and public repository requests together. A public profile remains visible when its Contribution graph is private, while malformed or unavailable API responses render bounded error states instead of falling back to local data for the same URL identity.
+
 Example shape:
 
 ```ts
@@ -219,6 +223,7 @@ const recipes = useLiveQuery(
 Policy:
 
 - local prototype の DB 変更購読は `useLiveQuery` で十分。
+- Cloud API mode is explicit through `VITE_SEASONINGBOM_API_BASE_URL`; do not silently mix Cloud and local records.
 - 複雑な UI 状態が増えた場合のみ Context / Zustand を検討する。
 
 ## Memory Repository

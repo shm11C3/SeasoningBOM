@@ -1,7 +1,9 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { SeasoningBomApiClient } from "../repositories/cloud-api/SeasoningBomApiClient";
 import { createMemoryRepositories } from "../repositories/memory/MemoryRepositories";
 import { App } from "./App";
+import { CloudApiProvider } from "./providers/CloudApiProvider";
 import { RepositoryProvider } from "./providers/RepositoryProvider";
 
 const seedDataMock = vi.hoisted(() => ({
@@ -46,12 +48,14 @@ vi.mock("../features/backup/BackupPage", () => ({
   BackupPage: () => "Backup route",
 }));
 
-function renderApp(path = "/") {
+function renderApp(path = "/", cloudApi: SeasoningBomApiClient | null = null) {
   window.history.pushState({}, "", path);
   return render(
-    <RepositoryProvider repositories={createMemoryRepositories()}>
-      <App />
-    </RepositoryProvider>,
+    <CloudApiProvider client={cloudApi}>
+      <RepositoryProvider repositories={createMemoryRepositories()}>
+        <App />
+      </RepositoryProvider>
+    </CloudApiProvider>,
   );
 }
 
@@ -102,5 +106,27 @@ describe("App", () => {
     renderApp("/");
 
     await waitFor(() => expect(screen.getByText(message)).toBeInTheDocument());
+  });
+
+  it("does not seed IndexedDB for a cloud-backed profile route", () => {
+    renderApp("/users/test-cook", {
+      getPublicProfile: vi.fn(),
+      getUserContributionDay: vi.fn(),
+      getUserContributions: vi.fn(),
+      listPublicRepositories: vi.fn(),
+    });
+
+    expect(seedDataMock.ensureSeedData).not.toHaveBeenCalled();
+  });
+
+  it("keeps seeding IndexedDB for routes that have not migrated to the cloud API", () => {
+    renderApp("/", {
+      getPublicProfile: vi.fn(),
+      getUserContributionDay: vi.fn(),
+      getUserContributions: vi.fn(),
+      listPublicRepositories: vi.fn(),
+    });
+
+    expect(seedDataMock.ensureSeedData).toHaveBeenCalledTimes(1);
   });
 });
