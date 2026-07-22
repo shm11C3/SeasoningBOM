@@ -106,6 +106,8 @@ Forbidden:
 - storing generated SeasoningBOM snapshots in DB
 - including Inventory Audit details in public SeasoningBOM output
 
+The MVP uses one package manifest, but runtime imports are mechanically separated. Keep `pnpm run check:boundaries` green: frontend code must not import Worker/D1 modules, Worker code must not import React/Dexie modules, and `domain/` must remain runtime-independent.
+
 Granular component / dependency mutation endpoints are full-resource `PUT` replacements, not partial `PATCH` merges. Treat URL path IDs as authoritative.
 
 ### Safety beats jokes
