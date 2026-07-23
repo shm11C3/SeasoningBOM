@@ -77,11 +77,30 @@ describe("RecipeDetailPage", () => {
     expect(screen.getByText("nom audit found 3 issues.")).toBeInTheDocument();
     expect(screen.getByText("All required dependencies are installed.")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("tab", { name: "Dependencies" }));
+    const codeTab = screen.getByRole("tab", { name: "Code" });
+    const dependenciesTab = screen.getByRole("tab", { name: "Dependencies" });
+    expect(codeTab).toHaveAttribute("aria-controls", "repository-code-panel");
+    expect(screen.getByRole("tabpanel")).toHaveAttribute("aria-labelledby", "repository-code-tab");
+
+    codeTab.focus();
+    await user.keyboard("{ArrowRight}");
+    expect(dependenciesTab).toHaveFocus();
+    expect(dependenciesTab).toHaveAttribute("aria-selected", "true");
     expect(screen.getByText("Allergens: wheat")).toBeInTheDocument();
     expect(screen.getByText(/soy/)).toBeInTheDocument();
 
-    await user.click(screen.getByRole("tab", { name: "Security" }));
+    await user.keyboard("{End}");
+    const securityTab = screen.getByRole("tab", { name: "Security" });
+    expect(securityTab).toHaveFocus();
+    expect(securityTab).toHaveAttribute("aria-selected", "true");
+
+    await user.keyboard("{Home}");
+    expect(codeTab).toHaveFocus();
+    await user.keyboard("{ArrowLeft}");
+    expect(securityTab).toHaveFocus();
+    await user.keyboard("x");
+    expect(securityTab).toHaveAttribute("aria-selected", "true");
+
     expect(screen.getByRole("heading", { name: "Security alerts" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Recipe alerts" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Your inventory audit" })).toBeInTheDocument();

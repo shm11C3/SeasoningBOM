@@ -1,0 +1,2 @@
+CLERK_JWT_KEY="replace_with_your_clerk_jwt_public_key"
+CLERK_AUTHORIZED_PARTIES="http://127.0.0.1:5173"

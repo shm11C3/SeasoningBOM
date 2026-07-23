@@ -35,13 +35,21 @@ It is a joke app, but food safety is not a joke: expired use-by ingredients are 
 
 ## Product Status
 
-Current phase: **local MVP implemented, Cloud D1 sharing MVP in progress**.
+Current phase: **Cloud D1 MVP implemented; release candidate**.
 
-The current React + Vite app includes local IndexedDB persistence, pure domain logic, GitHub-like recipe repository screens, inventory management, security/EOL dashboards, SeasoningBOM JSON download, and backup / restore. Cloud mode also supports Clerk-backed profile bootstrap, D1 recipe writes, private D1 inventory CRUD, and signed-in Inventory Audit results without exposing them in public Recipe Alerts.
+The current React + Vite app includes local IndexedDB persistence, pure domain logic, GitHub-like recipe repository screens, inventory management, security/EOL dashboards, SeasoningBOM JSON download, and backup / restore. Cloud mode supports Clerk-backed profile bootstrap, D1 recipe and inventory writes, private Inventory Audit results, Star/Fork interactions, and Contribution graphs without exposing private inventory in public Recipe Alerts.
 
 The canonical product direction is now the Cloudflare Pages / Workers / D1 recipe sharing service described in `docs/seasoningbom_requirements_cloud_d1.md`. Existing IndexedDB code is a local prototype and migration base.
 
+## Screenshots
+
+![SeasoningBOM repository dashboard](docs/assets/dashboard.png)
+
+![Curry Rice repository detail](docs/assets/repository-detail.png)
+
 ## Getting Started
+
+### Local prototype
 
 ```bash
 pnpm install
@@ -58,6 +66,24 @@ pnpm build
 
 The dev server defaults to `http://127.0.0.1:5173/`.
 
+### Cloud mode locally
+
+Create local environment files from `.env.example` and `.dev.vars.example`, then replace the Clerk placeholders. Apply the local D1 migration and optional public examples:
+
+```bash
+pnpm run db:migrate:local
+pnpm run db:seed:local
+```
+
+Run the Worker and Vite in separate terminals:
+
+```bash
+pnpm run dev:worker
+pnpm dev
+```
+
+Vite proxies `/api` to the local Worker at `http://127.0.0.1:8787`. The frontend environment is:
+
 To run the Cloud frontend against a same-origin Workers API, add `.env.local`:
 
 ```dotenv
@@ -65,7 +91,9 @@ VITE_SEASONINGBOM_API_BASE_URL=/api
 VITE_CLERK_PUBLISHABLE_KEY=pk_test_your_clerk_publishable_key
 ```
 
-Replace `pk_test_your_clerk_publishable_key` with the actual publishable key from the Clerk Dashboard; the placeholder itself is not a valid configuration. Enable Google and GitHub social login in the Clerk application. Do not enable a SeasoningBOM-owned email/password flow. On first sign-in, the app asks the user to reserve a stable SeasoningBOM User Handle before protected writes are enabled. Without `VITE_SEASONINGBOM_API_BASE_URL`, the app keeps using the local IndexedDB prototype. With a Cloud API URL and the Clerk key left unset, public repository browsing remains available while sign-in is disabled.
+Replace the Clerk placeholders with actual keys from the Clerk Dashboard; the example values are not valid configurations. Enable Google and GitHub social login only. Do not enable a SeasoningBOM-owned email/password flow. On first sign-in, the app asks the user to reserve a stable SeasoningBOM User Handle before protected writes are enabled. Without `VITE_SEASONINGBOM_API_BASE_URL`, the app keeps using the local IndexedDB prototype. With a Cloud API URL and the Clerk key left unset, public repository browsing remains available while sign-in is disabled.
+
+See [Deployment](docs/deployment.md) for Cloudflare setup and [Release checklist](docs/release-checklist.md) before routing production traffic.
 
 ## Tech Stack
 
@@ -134,6 +162,8 @@ Start here:
 - [SeasoningBOM Format](docs/seasoning-bom-format.md)
 - [Glossary](docs/glossary.md)
 - [Roadmap](docs/roadmap.md)
+- [Deployment](docs/deployment.md)
+- [Release Checklist](docs/release-checklist.md)
 
 Architecture decisions:
 
@@ -145,6 +175,11 @@ Architecture decisions:
 - [ADR 0006: Split public Recipe Alerts and private Inventory Audits](docs/adr/0006-split-recipe-alerts-and-inventory-audits.md)
 - [ADR 0007: Stable User Handles for Repository URLs](docs/adr/0007-stable-user-handles-for-repository-urls.md)
 - [ADR 0008: Clerk social authentication for the Cloud MVP](docs/adr/0008-clerk-social-auth-for-cloud-mvp.md)
+- [ADR 0009: Hono for Worker routing](docs/adr/0009-hono-for-worker-routing.md)
+- [ADR 0010: Explicit Inventory links for EOL Rescue](docs/adr/0010-explicit-inventory-links-for-eol-rescue.md)
+- [ADR 0011: Granular dependency mutation API](docs/adr/0011-granular-dependency-mutation-api.md)
+- [ADR 0012: Atomic recipe editor manifests](docs/adr/0012-atomic-recipe-editor-manifests.md)
+- [ADR 0013: Atomic Repository Fork snapshots](docs/adr/0013-atomic-repository-fork-snapshots.md)
 
 Requirements:
 

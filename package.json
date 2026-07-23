@@ -5,8 +5,12 @@
   "license": "MIT",
   "type": "module",
   "private": true,
+  "packageManager": "pnpm@11.9.0",
   "scripts": {
     "dev": "vite",
+    "dev:worker": "pnpm dlx wrangler@4 dev",
+    "db:migrate:local": "pnpm dlx wrangler@4 d1 migrations apply seasoning-bom --local",
+    "db:seed:local": "pnpm dlx wrangler@4 d1 execute seasoning-bom --local --file examples/seed-public-repositories.sql",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "check": "biome check . && pnpm run check:boundaries && tsc -b",

@@ -99,6 +99,16 @@ describe("App", () => {
     expect(screen.getByText("/elsewhere")).toBeInTheDocument();
   });
 
+  it("provides a keyboard skip link to the main content", () => {
+    renderApp();
+
+    expect(screen.getByRole("link", { name: "Skip to content" })).toHaveAttribute(
+      "href",
+      "#main-content",
+    );
+    expect(screen.getByRole("main")).toHaveAttribute("id", "main-content");
+  });
+
   it.each([
     [new Error("seed failed"), "seed failed"],
     ["plain failure", "Seed data failed to initialize."],
@@ -107,7 +117,7 @@ describe("App", () => {
 
     renderApp("/");
 
-    await waitFor(() => expect(screen.getByText(message)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent(message));
   });
 
   it.each([

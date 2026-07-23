@@ -64,6 +64,9 @@ export function App() {
     <ThemeProvider colorMode="auto">
       <BaseStyles>
         <div className="app-shell">
+          <a className="skip-link" href="#main-content">
+            Skip to content
+          </a>
           <header className="app-header">
             <AppLink className="app-brand" to="/">
               <AppMarkIcon size={24} />
@@ -88,9 +91,13 @@ export function App() {
             </nav>
             <AuthControls />
           </header>
-          <main className="app-main">
+          <main id="main-content" className="app-main" tabIndex={-1}>
             <ProfileBootstrapPanel />
-            {seedError ? <div className="flash flash-danger">{seedError}</div> : null}
+            {seedError ? (
+              <div className="flash flash-danger" role="alert">
+                {seedError}
+              </div>
+            ) : null}
             {route.name === "dashboard" ? <DashboardPage /> : null}
             {route.name === "repository" ? (
               <RecipeDetailPage ownerHandle={route.ownerHandle} slug={route.slug} />

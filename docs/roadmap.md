@@ -172,6 +172,8 @@ Exit criteria:
 
 Goal: Cloud MVP を公開可能にする。
 
+Status: complete
+
 Deliverables:
 
 - example repositories
@@ -181,6 +183,15 @@ Deliverables:
 - responsive layout pass
 - release checklist
 - deployment docs
+
+Current implementation checkpoint:
+
+- local and production Worker/D1 workflows are documented around `wrangler.jsonc`, same-origin `/api`, Clerk secrets, and D1 migrations;
+- two idempotent public example repositories are available in `examples/seed-public-repositories.sql` and covered by a SQLite smoke test;
+- README includes actual dashboard and dependency screenshots plus local Cloud usage;
+- skip navigation, visible focus treatment, and keyboard-operable repository tabs are covered by component and browser tests;
+- desktop and 390 px mobile layouts are visually checked, with mobile horizontal overflow guarded by Playwright;
+- `docs/release-checklist.md` covers CI, Cloudflare, auth/privacy, safety, and product smoke tests.
 
 Exit criteria:
 
