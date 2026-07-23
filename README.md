@@ -6,6 +6,11 @@ SeasoningBOM is a GitHub-parody recipe sharing service that treats recipes like 
 
 料理を **Repository**、材料を **Dependencies**、賞味期限を **EOL**、監査を **`nom audit`** として扱う、GitHub 風のネタ系レシピ共有サービスです。
 
+> [!NOTE]
+> これはコードを全く理解せずに初期開発をし、そこから問題なくリリース・運用に持っていけるかの実験でもある。
+>
+> この段階以降のプロダクトオーナーはリポジトリ管理者本人です。AI は開発支援者として参加し、リリース判断と継続的な運用の責任はプロダクトオーナーが担います。
+
 ## Concept
 
 ```text
