@@ -4,6 +4,8 @@ SeasoningBOM は Web 先行の recipe sharing service です。
 
 Cloud D1 MVP の production 永続化は Cloudflare D1 で行い、Cloudflare Workers API からアクセスします。既存の IndexedDB + Dexie.js 実装は local prototype / development adapter として残します。アプリケーション層は Repository contract または API client に依存し、具体的な DB 実装には依存しません。
 
+The MVP keeps web and Worker code in one package manifest. `tsconfig.app.json`, `tsconfig.worker.json`, and `pnpm run check:boundaries` enforce the runtime boundary so frontend code cannot import D1/Worker implementations and backend code cannot import React/Dexie implementations.
+
 ## Goals
 
 1. Workers / D1 実装を UI と domain から隠蔽する。

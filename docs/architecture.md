@@ -234,6 +234,20 @@ Forbidden:
 - UI directly creating SeasoningBOM JSON by assembling ad-hoc objects
 - UI directly calculating lifecycle status
 
+## Runtime Boundaries
+
+The MVP intentionally uses one `package.json` for the browser app, Worker API, and shared pure modules. Runtime separation is enforced by TypeScript project references and `pnpm run check:boundaries`, not by separate workspace packages.
+
+See [ADR 0014](adr/0014-single-package-runtime-boundaries.md) for the decision and the conditions that would justify a later workspace split.
+
+- `tsconfig.app.json` typechecks browser/React code and excludes Worker/D1 implementations.
+- `tsconfig.worker.json` typechecks Workers and D1 repositories with Web Worker globals instead of DOM globals.
+- frontend code cannot import Workers, D1 repositories, Hono, or `@clerk/backend`.
+- Worker/D1 code cannot import React UI, Dexie, IndexedDB repositories, or the browser API client.
+- `domain/` cannot import UI, repositories, Workers, browser storage, or runtime frameworks.
+
+`pnpm run check` runs the boundary check and both runtime typechecks. Keep these rules mechanical when adding a new source layer or runtime-specific dependency.
+
 ## MVP Route Structure
 
 Cloud D1 MVP route plan:
