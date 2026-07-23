@@ -15,6 +15,8 @@
 | [seasoning-bom-format.md](seasoning-bom-format.md) | SeasoningBOM JSON 形式仕様 |
 | [glossary.md](glossary.md) | 用語集と命名ルール |
 | [roadmap.md](roadmap.md) | フェーズ計画と優先順位 |
+| [deployment.md](deployment.md) | Cloudflare Pages / Workers / D1 のローカル開発・配備手順 |
+| [release-checklist.md](release-checklist.md) | Cloud MVP 公開前の検証項目 |
 | [seasoningbom_requirements_cloud_d1.md](seasoningbom_requirements_cloud_d1.md) | 現在の Cloud D1 MVP 要件一覧 |
 | [requirements.md](requirements.md) | 元の local-first 要件一覧（履歴） |
 

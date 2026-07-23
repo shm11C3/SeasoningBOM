@@ -1,0 +1,19 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "seasoning-bom-api",
+  "main": "src/workers/api/index.ts",
+  "compatibility_date": "2026-07-23",
+  "compatibility_flags": ["nodejs_compat"],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      // The first CLI deploy provisions D1 and writes database_id here. Commit that ID before automated deploys.
+      "database_name": "seasoning-bom",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "dev": {
+    "ip": "127.0.0.1",
+    "port": 8787
+  }
+}

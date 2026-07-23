@@ -4,6 +4,8 @@ SeasoningBOM は、React + Vite + TypeScript による Web 先行アプリとし
 
 Cloud D1 MVP では Cloudflare Pages でフロントエンドを配信し、Cloudflare Workers API と D1 で hosted recipe sharing service を実装します。既存の IndexedDB 実装は local prototype / development adapter として残し、アプリケーション層からは Repository contract または API client 越しにアクセスします。
 
+本番では Pages と Worker を同じカスタムドメインで公開し、`/api/*` を Worker route に割り当てます。詳細は [ADR 0015](adr/0015-same-origin-pages-worker-routing.md) を参照してください。
+
 ## Technology Decisions
 
 | Area | Decision |

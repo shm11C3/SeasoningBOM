@@ -1,5 +1,5 @@
 import { Button, Label } from "@primer/react";
-import type { ReactNode } from "react";
+import type { KeyboardEvent, ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { useCloudApi } from "../../app/providers/CloudApiProvider";
 import { useCloudProfile } from "../../app/providers/CloudProfileProvider";
@@ -182,11 +182,17 @@ function LocalRecipeDetailPage({ ownerHandle, slug }: { ownerHandle: string; slu
           </div>
         </div>
         <div className="tabs" role="tablist" aria-label="Repository sections">
-          <TabButton active={tab === "code"} onClick={() => setTab("code")} icon={<CodeIcon />}>
+          <TabButton
+            active={tab === "code"}
+            tab="code"
+            onClick={() => setTab("code")}
+            icon={<CodeIcon />}
+          >
             Code
           </TabButton>
           <TabButton
             active={tab === "dependencies"}
+            tab="dependencies"
             onClick={() => setTab("dependencies")}
             icon={<PackageIcon />}
           >
@@ -194,6 +200,7 @@ function LocalRecipeDetailPage({ ownerHandle, slug }: { ownerHandle: string; slu
           </TabButton>
           <TabButton
             active={tab === "security"}
+            tab="security"
             onClick={() => setTab("security")}
             icon={<ShieldIcon />}
           >
@@ -202,7 +209,12 @@ function LocalRecipeDetailPage({ ownerHandle, slug }: { ownerHandle: string; slu
         </div>
       </div>
 
-      <section className="section">
+      <section
+        id={`repository-${tab}-panel`}
+        className="section"
+        role="tabpanel"
+        aria-labelledby={`repository-${tab}-tab`}
+      >
         {tab === "code" ? (
           <CodeTab
             readme={currentRecipe.readme}
@@ -505,11 +517,17 @@ function CloudRecipeDetailPage({
           </div>
         </div>
         <div className="tabs" role="tablist" aria-label="Repository sections">
-          <TabButton active={tab === "code"} onClick={() => setTab("code")} icon={<CodeIcon />}>
+          <TabButton
+            active={tab === "code"}
+            tab="code"
+            onClick={() => setTab("code")}
+            icon={<CodeIcon />}
+          >
             Code
           </TabButton>
           <TabButton
             active={tab === "dependencies"}
+            tab="dependencies"
             onClick={() => setTab("dependencies")}
             icon={<PackageIcon />}
           >
@@ -517,6 +535,7 @@ function CloudRecipeDetailPage({
           </TabButton>
           <TabButton
             active={tab === "security"}
+            tab="security"
             onClick={() => setTab("security")}
             icon={<ShieldIcon />}
           >
@@ -525,7 +544,12 @@ function CloudRecipeDetailPage({
         </div>
       </div>
 
-      <section className="section">
+      <section
+        id={`repository-${tab}-panel`}
+        className="section"
+        role="tabpanel"
+        aria-labelledby={`repository-${tab}-tab`}
+      >
         {tab === "code" ? (
           <CloudCodeTab
             readme={repository.readme}
@@ -676,27 +700,58 @@ function CloudSecurityTab({
 
 function TabButton({
   active,
+  tab,
   onClick,
   icon,
   children,
 }: {
   active: boolean;
+  tab: Tab;
   onClick: () => void;
   icon: ReactNode;
   children: ReactNode;
 }) {
   return (
     <button
+      id={`repository-${tab}-tab`}
       type="button"
       className="tab-button"
       role="tab"
+      aria-controls={`repository-${tab}-panel`}
       aria-selected={active}
+      tabIndex={active ? 0 : -1}
+      onKeyDown={handleTabKeyDown}
       onClick={onClick}
     >
       {icon}
       {children}
     </button>
   );
+}
+
+function handleTabKeyDown(event: KeyboardEvent<HTMLButtonElement>) {
+  const tabs = Array.from(
+    event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('[role="tab"]') ?? [],
+  );
+  const currentIndex = tabs.indexOf(event.currentTarget);
+  let nextIndex: number | null = null;
+
+  if (event.key === "ArrowRight") {
+    nextIndex = (currentIndex + 1) % tabs.length;
+  } else if (event.key === "ArrowLeft") {
+    nextIndex = (currentIndex - 1 + tabs.length) % tabs.length;
+  } else if (event.key === "Home") {
+    nextIndex = 0;
+  } else if (event.key === "End") {
+    nextIndex = tabs.length - 1;
+  }
+
+  if (nextIndex === null || tabs.length === 0) {
+    return;
+  }
+  event.preventDefault();
+  tabs[nextIndex]?.focus();
+  tabs[nextIndex]?.click();
 }
 
 function CodeTab({
