@@ -238,6 +238,8 @@ Forbidden:
 
 The MVP intentionally uses one `package.json` for the browser app, Worker API, and shared pure modules. Runtime separation is enforced by TypeScript project references and `pnpm run check:boundaries`, not by separate workspace packages.
 
+See [ADR 0014](adr/0014-single-package-runtime-boundaries.md) for the decision and the conditions that would justify a later workspace split.
+
 - `tsconfig.app.json` typechecks browser/React code and excludes Worker/D1 implementations.
 - `tsconfig.worker.json` typechecks Workers and D1 repositories with Web Worker globals instead of DOM globals.
 - frontend code cannot import Workers, D1 repositories, Hono, or `@clerk/backend`.

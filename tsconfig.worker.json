@@ -1,6 +1,7 @@
 {
   "compilerOptions": {
     "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.worker.tsbuildinfo",
+    "composite": true,
     "target": "ES2022",
     "lib": ["ES2023", "WebWorker"],
     "module": "ESNext",
@@ -11,5 +12,11 @@
     "noEmit": true,
     "types": ["vitest/globals"]
   },
-  "include": ["src/repositories/cloudflare-d1/**/*.ts", "src/workers/**/*.ts"]
+  "include": [
+    "src/domain/**/*.ts",
+    "src/repositories/cloudflare-d1/**/*.ts",
+    "src/repositories/contracts/**/*.ts",
+    "src/workers/**/*.ts"
+  ],
+  "exclude": ["src/domain/**/*.test.ts"]
 }
